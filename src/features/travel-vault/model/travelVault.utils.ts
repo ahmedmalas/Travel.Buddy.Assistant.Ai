@@ -19,6 +19,24 @@ export const DEFAULT_VAULT_FILTERS: VaultFilters = {
 
 const EXPIRY_TYPES: VaultItemType[] = ['passport', 'visa', 'insurance'];
 
+function normalizeSearchToken(value: string) {
+  return value
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase();
+}
+
+export function normalizeVaultTags(tags: string[]) {
+  return Array.from(
+    new Set(
+      tags
+        .map((tag) => normalizeSearchToken(tag))
+        .filter(Boolean),
+    ),
+  );
+}
+
 export function formatVaultTypeLabel(type: string) {
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
@@ -47,15 +65,18 @@ export function createVaultSearchText(input: {
   ]
     .filter(Boolean)
     .join(' ')
-    .toLowerCase();
+    .normalize('NFKC')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLocaleLowerCase();
 }
 
 export function buildVaultItem(tripId: string, draft: VaultItemDraft): VaultItem {
   const timestamp = new Date().toISOString();
-  const tags = draft.tags.map((tag) => tag.trim().toLowerCase()).filter(Boolean);
+  const tags = normalizeVaultTags(draft.tags);
 
   return {
-    id: `vault-${Math.random().toString(36).slice(2, 10)}`,
+    id: crypto.randomUUID(),
     tripId,
     type: draft.type,
     category: draft.category,
@@ -100,21 +121,27 @@ export function getVaultCountsByType(vaultItems: VaultItem[]): VaultCountsByType
 }
 
 export function getVaultExpiringSoonCount(vaultItems: VaultItem[], now: Date = new Date()) {
-  const soonThreshold = now.getTime() + 30 * 24 * 60 * 60 * 1000;
+  const nowUtcStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+  const soonThresholdUtc = nowUtcStart + 30 * 24 * 60 * 60 * 1000;
   return vaultItems.filter((item) => {
     if (!item.expiresAt || !EXPIRY_TYPES.includes(item.type)) {
       return false;
     }
-    const expiry = new Date(item.expiresAt).getTime();
-    return Number.isFinite(expiry) && expiry <= soonThreshold;
+    const expiryDate = new Date(item.expiresAt);
+    if (!Number.isFinite(expiryDate.getTime())) {
+      return false;
+    }
+    const expiryUtcStart = Date.UTC(expiryDate.getUTCFullYear(), expiryDate.getUTCMonth(), expiryDate.getUTCDate());
+    return expiryUtcStart <= soonThresholdUtc;
   }).length;
 }
 
 function matchesQuery(item: VaultItem, query: string) {
-  if (!query.trim()) {
+  const normalizedQuery = normalizeSearchToken(query);
+  if (!normalizedQuery) {
     return true;
   }
-  return item.searchText.includes(query.trim().toLowerCase());
+  return item.searchText.includes(normalizedQuery);
 }
 
 export function filterVaultItems(vaultItems: VaultItem[], filters: VaultFilters) {
@@ -157,10 +184,10 @@ export function sortVaultItems(vaultItems: VaultItem[], sortMode: VaultFilters['
 }
 
 export function getVaultSearchResults(vaultItems: VaultItem[], query: string) {
-  if (!query.trim()) {
+  const normalized = normalizeSearchToken(query);
+  if (!normalized) {
     return vaultItems;
   }
-  const normalized = query.trim().toLowerCase();
   return vaultItems.filter((item) => item.searchText.includes(normalized));
 }
 
@@ -176,4 +203,10 @@ export function isValidVaultType(type: string): type is VaultItemType {
 
 export function isValidVaultFileKind(fileKind: string): fileKind is VaultFileKind {
   return VAULT_FILE_KINDS.includes(fileKind as VaultFileKind);
+}
+
+export function revokeVaultPreviewUrl(previewUrl?: string) {
+  if (previewUrl?.startsWith('blob:')) {
+    URL.revokeObjectURL(previewUrl);
+  }
 }

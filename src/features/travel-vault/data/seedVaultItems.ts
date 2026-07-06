@@ -23,7 +23,7 @@ function withSearch(item: Omit<VaultItem, 'searchText'>): VaultItem {
 
 export const seedVaultItems: VaultItem[] = [
   withSearch({
-    id: 'vault-flight-etkt',
+    id: '18c5008e-e8fb-45f8-9e4e-e63f46211bf4',
     tripId: 'trip-japan-spring',
     type: 'flight',
     category: 'flight',
@@ -42,7 +42,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 5 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-hotel-booking',
+    id: 'a8be4e16-0604-4127-adc0-13120f37b6ef',
     tripId: 'trip-japan-spring',
     type: 'hotel',
     category: 'hotel',
@@ -59,7 +59,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 2 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-passport-copy',
+    id: 'e9f12de4-c2ff-4eb8-99e5-634ec45d6815',
     tripId: 'trip-japan-spring',
     type: 'passport',
     category: 'passport',
@@ -74,7 +74,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 6 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-travel-insurance',
+    id: 'f9f93b1c-ec2e-4c54-b4a6-bc20f29e3a16',
     tripId: 'trip-japan-spring',
     type: 'insurance',
     category: 'insurance',
@@ -90,7 +90,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 1 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-rail-ticket',
+    id: 'b5dfd5d4-6ef0-4538-8e7a-e04585bd9fa9',
     tripId: 'trip-japan-spring',
     type: 'ticket',
     category: 'ticket',
@@ -105,7 +105,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 7 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-receipt-kappo',
+    id: '545ce5df-c9e4-4a5f-b8d8-6ab958d2f2c4',
     tripId: 'trip-japan-spring',
     type: 'receipt',
     category: 'receipt',
@@ -120,7 +120,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 3 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-invoice-tour',
+    id: 'ca6f3634-cc3f-46ac-938f-9dc95ccabf86',
     tripId: 'trip-japan-spring',
     type: 'invoice',
     category: 'invoice',
@@ -136,7 +136,7 @@ export const seedVaultItems: VaultItem[] = [
     updatedAt: new Date(now - 2 * day).toISOString(),
   }),
   withSearch({
-    id: 'vault-note-packing',
+    id: 'ec40f2dd-b050-4e70-9f4d-cad514593767',
     tripId: 'trip-japan-spring',
     type: 'note',
     category: 'note',

@@ -1,8 +1,8 @@
-import { createContext, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
 import { createActivityFromDraft, normalizeDayActivities } from '../../itinerary-board/adapters/itineraryBoard.adapter';
 import type { VaultItemDraft, VaultItemUpdate } from '../../travel-vault/model/travelVault.types';
-import { buildVaultItem } from '../../travel-vault/model/travelVault.utils';
+import { buildVaultItem, createVaultSearchText, normalizeVaultTags, revokeVaultPreviewUrl } from '../../travel-vault/model/travelVault.utils';
 import { seedTrips } from '../data/seedTrips';
 import type {
   AddActivityToDayDraft,
@@ -64,6 +64,20 @@ export function TripProvider({ children }: TripProviderProps) {
   const vaultCountsByType = useMemo(() => getTripVaultCountsByType(activeTrip), [activeTrip]);
   const vaultExpiringSoonCount = useMemo(() => getTripVaultExpiringSoonCount(activeTrip), [activeTrip]);
   const vaultSearchResults = useMemo(() => getTripVaultSearchResults(activeTrip, vaultSearchQuery), [activeTrip, vaultSearchQuery]);
+  const tripsRef = useRef(trips);
+
+  useEffect(() => {
+    tripsRef.current = trips;
+  }, [trips]);
+
+  useEffect(
+    () => () => {
+      tripsRef.current.forEach((trip) => {
+        trip.vaultItems.forEach((item) => revokeVaultPreviewUrl(item.previewUrl));
+      });
+    },
+    [],
+  );
 
   function patchActiveTrip(applyPatch: (trip: Trip) => Trip) {
     setTrips((currentTrips) => {
@@ -273,19 +287,54 @@ export function TripProvider({ children }: TripProviderProps) {
   }
 
   function updateVaultItem({ itemId, updates }: { itemId: string; updates: VaultItemUpdate }) {
-    patchActiveTrip((trip) => ({
-      ...trip,
-      vaultItems: trip.vaultItems.map((item) =>
-        item.id === itemId ? { ...item, ...updates, updatedAt: new Date().toISOString() } : item,
-      ),
-    }));
+    patchActiveTrip((trip) => {
+      const nextVaultItems = trip.vaultItems.map((item) => {
+        if (item.id !== itemId) {
+          return item;
+        }
+        const nextPreviewUrl = updates.previewUrl ?? item.previewUrl;
+        if (item.previewUrl !== nextPreviewUrl) {
+          revokeVaultPreviewUrl(item.previewUrl);
+        }
+        return {
+          ...item,
+          ...updates,
+          tags: updates.tags ? normalizeVaultTags(updates.tags) : item.tags,
+          searchText: createVaultSearchText({
+            title: updates.title ?? item.title,
+            description: updates.description ?? item.description,
+            notes: updates.notes ?? item.notes,
+            tags: updates.tags ? normalizeVaultTags(updates.tags) : item.tags,
+            vendor: updates.vendor ?? item.vendor,
+            confirmationCode: updates.confirmationCode ?? item.confirmationCode,
+            type: updates.type ?? item.type,
+            category: updates.category ?? item.category,
+            fileName: updates.fileName ?? item.fileName,
+          }),
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      return {
+        ...trip,
+        vaultItems: nextVaultItems,
+      };
+    });
   }
 
   function removeVaultItem({ itemId }: { itemId: string }) {
-    patchActiveTrip((trip) => ({
-      ...trip,
-      vaultItems: trip.vaultItems.filter((item) => item.id !== itemId),
-    }));
+    patchActiveTrip((trip) => {
+      const nextVaultItems = trip.vaultItems.filter((item) => {
+        if (item.id === itemId) {
+          revokeVaultPreviewUrl(item.previewUrl);
+          return false;
+        }
+        return true;
+      });
+      return {
+        ...trip,
+        vaultItems: nextVaultItems,
+      };
+    });
   }
 
   const value = useMemo<TripCommandContextValue>(

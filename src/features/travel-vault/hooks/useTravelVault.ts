@@ -18,9 +18,12 @@ export function useTravelVault() {
   const [filters, setFilters] = useState<VaultFilters>(DEFAULT_VAULT_FILTERS);
   const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
 
-  const vaultItems = getActiveTripVaultItems(activeTrip);
+  const vaultItems = useMemo(() => getActiveTripVaultItems(activeTrip), [activeTrip]);
   const filteredItems = useMemo(() => getVaultFilteredItems(vaultItems, filters), [vaultItems, filters]);
-  const selectedItem = filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null;
+  const selectedItem = useMemo(
+    () => filteredItems.find((item) => item.id === selectedItemId) ?? filteredItems[0] ?? null,
+    [filteredItems, selectedItemId],
+  );
   const tagOptions = useMemo(() => getVaultTagOptions(vaultItems), [vaultItems]);
 
   function updateFilters(nextFilters: Partial<VaultFilters>) {

@@ -1,6 +1,6 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { VAULT_FILE_KINDS, VAULT_ITEM_TYPES, type VaultItemDraft } from '../model/travelVault.types';
-import { formatVaultTypeLabel } from '../model/travelVault.utils';
+import { formatVaultTypeLabel, normalizeVaultTags } from '../model/travelVault.utils';
 
 type VaultUploadPanelProps = {
   onCreateItem: (draft: VaultItemDraft) => void;
@@ -27,6 +27,7 @@ export function VaultUploadPanel({ onCreateItem }: VaultUploadPanelProps) {
   const [draft, setDraft] = useState<VaultItemDraft>(INITIAL_DRAFT);
   const [tagsInput, setTagsInput] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const previewUrlRef = useRef<string | null>(null);
   const canSubmit = useMemo(() => draft.title.trim().length > 1, [draft.title]);
 
   function updateDraft(nextDraft: Partial<VaultItemDraft>) {
@@ -38,7 +39,11 @@ export function VaultUploadPanel({ onCreateItem }: VaultUploadPanelProps) {
     if (!selectedFile) {
       return;
     }
+    if (previewUrlRef.current?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
     const previewUrl = selectedFile.type.startsWith('image/') ? URL.createObjectURL(selectedFile) : undefined;
+    previewUrlRef.current = previewUrl ?? null;
     updateDraft({
       fileName: selectedFile.name,
       mimeType: selectedFile.type,
@@ -55,10 +60,7 @@ export function VaultUploadPanel({ onCreateItem }: VaultUploadPanelProps) {
       setError('Title must be at least 2 characters.');
       return;
     }
-    const parsedTags = tagsInput
-      .split(',')
-      .map((tag) => tag.trim().toLowerCase())
-      .filter(Boolean);
+    const parsedTags = normalizeVaultTags(tagsInput.split(','));
 
     setError(null);
     onCreateItem({
@@ -69,7 +71,17 @@ export function VaultUploadPanel({ onCreateItem }: VaultUploadPanelProps) {
     });
     setDraft(INITIAL_DRAFT);
     setTagsInput('');
+    previewUrlRef.current = null;
   }
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current?.startsWith('blob:')) {
+        URL.revokeObjectURL(previewUrlRef.current);
+      }
+    },
+    [],
+  );
 
   return (
     <form className="space-y-3 rounded-3xl border border-white/10 bg-white/[0.03] p-4" onSubmit={handleSubmit}>

@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { VaultItem, VaultItemUpdate } from '../model/travelVault.types';
 import { VaultCategoryBadge } from './VaultCategoryBadge';
 import { VaultEmptyState } from './VaultEmptyState';
+import { normalizeVaultTags } from '../model/travelVault.utils';
 import { VaultTagChip } from './VaultTagChip';
 
 type VaultItemDetailPanelProps = {
@@ -15,6 +16,8 @@ export function VaultItemDetailPanel({ item, onUpdateItem, onRemoveItem }: Vault
   const [notes, setNotes] = useState('');
   const [tags, setTags] = useState('');
   const [expiresAt, setExpiresAt] = useState('');
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const confirmButtonRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!item) {
@@ -25,6 +28,23 @@ export function VaultItemDetailPanel({ item, onUpdateItem, onRemoveItem }: Vault
     setTags(item.tags.join(', '));
     setExpiresAt(item.expiresAt?.slice(0, 10) || '');
   }, [item]);
+
+  useEffect(() => {
+    if (!deleteConfirmOpen) {
+      return;
+    }
+    confirmButtonRef.current?.focus();
+
+    function handleEscape(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setDeleteConfirmOpen(false);
+      }
+    }
+
+    window.addEventListener('keydown', handleEscape);
+    return () => window.removeEventListener('keydown', handleEscape);
+  }, [deleteConfirmOpen]);
 
   if (!item) {
     return <VaultEmptyState title="Select a vault item" description="Pick an item card to inspect metadata and update trip records." />;
@@ -95,9 +115,8 @@ export function VaultItemDetailPanel({ item, onUpdateItem, onRemoveItem }: Vault
               title: title.trim(),
               notes: notes.trim() || undefined,
               tags: tags
-                .split(',')
-                .map((tag) => tag.trim().toLowerCase())
-                .filter(Boolean),
+                ? normalizeVaultTags(tags.split(','))
+                : [],
               expiresAt: expiresAt || undefined,
             })
           }
@@ -107,12 +126,45 @@ export function VaultItemDetailPanel({ item, onUpdateItem, onRemoveItem }: Vault
         </button>
         <button
           className="rounded-full border border-rose-300/40 bg-rose-500/10 px-4 py-2 text-sm text-rose-100 transition hover:bg-rose-500/20"
-          onClick={() => onRemoveItem(item.id)}
+          onClick={() => setDeleteConfirmOpen(true)}
           type="button"
         >
           Remove item
         </button>
       </div>
+
+      {deleteConfirmOpen && (
+        <div
+          aria-modal="true"
+          className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/70 px-4"
+          role="dialog"
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-white/15 bg-slate-900 p-4 shadow-2xl">
+            <h5 className="text-base font-semibold text-white">Confirm item deletion</h5>
+            <p className="mt-2 text-sm text-slate-300">Remove &quot;{item.title}&quot; from this trip vault?</p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                className="rounded-full border border-white/20 px-3 py-1.5 text-sm text-slate-200"
+                onClick={() => setDeleteConfirmOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="rounded-full border border-rose-300/50 bg-rose-500/15 px-3 py-1.5 text-sm text-rose-100"
+                onClick={() => {
+                  onRemoveItem(item.id);
+                  setDeleteConfirmOpen(false);
+                }}
+                ref={confirmButtonRef}
+                type="button"
+              >
+                Confirm remove
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
