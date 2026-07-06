@@ -4,6 +4,7 @@ import { DestinationWorkspaceSection } from '../features/destination-workspace/s
 import { TripCommandSection } from '../features/trip-command/sections/TripCommandSection';
 import { TripProvider } from '../features/trip-command/state/TripProvider';
 import { ItineraryBoardSection } from '../features/itinerary-board/sections/ItineraryBoardSection';
+import { TravelVaultSection } from '../features/travel-vault/sections/TravelVaultSection';
 
 export function AppShell() {
   return (
@@ -49,6 +50,8 @@ export function AppShell() {
           <TripCommandSection />
 
           <ItineraryBoardSection />
+
+          <TravelVaultSection />
 
           <section className="mx-auto grid max-w-7xl gap-5 px-6 pb-20 md:grid-cols-2 lg:grid-cols-3">
             {travelSections.map((section) => (

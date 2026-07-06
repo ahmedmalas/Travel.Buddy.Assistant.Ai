@@ -26,6 +26,11 @@ export const travelSections: TravelSection[] = [
     description: 'Save places with reminders, notes, priorities, and map-ready structure for each destination.',
   },
   {
+    title: 'Travel Vault',
+    eyebrow: 'Secure',
+    description: 'Organise trip-critical documents, tags, and searchable records in one vault.',
+  },
+  {
     title: 'Budget Intelligence',
     eyebrow: 'Compare',
     description: 'Estimate trip costs across flights, hotels, transport, activities, meals, and extras.',

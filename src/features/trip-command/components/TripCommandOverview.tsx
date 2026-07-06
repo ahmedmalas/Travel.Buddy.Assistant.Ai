@@ -3,7 +3,8 @@ import { CommandKpiCard } from './CommandKpiCard';
 import { useTripCommand } from '../state/useTripCommand';
 
 export function TripCommandOverview() {
-  const { activeTrip, activeDestination, activeTripPlaces, reminderCounts, tripMapPoints } = useTripCommand();
+  const { activeTrip, activeDestination, activeTripPlaces, reminderCounts, tripMapPoints, activeTripVaultItems, vaultExpiringSoonCount } =
+    useTripCommand();
   const remindersDue = reminderCounts.overdue + reminderCounts.today;
   const mapReadyCount = activeTripPlaces.filter((place) => typeof place.lat === 'number' && typeof place.lng === 'number').length;
   const tripBriefSummary = toTripBriefSummary(activeTrip);
@@ -46,6 +47,7 @@ export function TripCommandOverview() {
               Itinerary: {activeTrip.itineraryDays.length} day(s),{' '}
               {activeTrip.itineraryDays.reduce((sum, day) => sum + day.activities.length, 0)} activity slot(s)
             </li>
+            <li>Travel vault: {activeTripVaultItems.length} item(s), {vaultExpiringSoonCount} expiring soon</li>
             <li>Budget model: {activeTrip.budget.currency} stub ready</li>
             <li>Documents: {activeTrip.documents.length} stub(s)</li>
             <li>AI context: {activeTrip.aiContext.persona}</li>

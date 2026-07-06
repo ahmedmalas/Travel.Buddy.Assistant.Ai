@@ -4,6 +4,12 @@ import {
   toMapPoints,
 } from '../../destination-workspace/model/destinationWorkspace.utils';
 import { sortActivitiesByStartTime } from '../../itinerary-board/model/itinerary.utils';
+import {
+  createVaultSearchText,
+  getVaultCountsByType,
+  getVaultExpiringSoonCount,
+  getVaultSearchResults,
+} from '../../travel-vault/model/travelVault.utils';
 import type { Place, PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
 import type {
   Trip,
@@ -75,6 +81,20 @@ export function buildTripDerivedFields(trip: Trip): Trip {
       ...day,
       activities: sortActivitiesByStartTime(day.activities),
     })),
+    vaultItems: trip.vaultItems.map((item) => ({
+      ...item,
+      searchText: createVaultSearchText({
+        title: item.title,
+        description: item.description,
+        notes: item.notes,
+        tags: item.tags,
+        vendor: item.vendor,
+        confirmationCode: item.confirmationCode,
+        type: item.type,
+        category: item.category,
+        fileName: item.fileName,
+      }),
+    })),
     mapPoints,
     reminders,
   };
@@ -100,4 +120,16 @@ export function toTripBriefSummaryCard(brief: TripBrief): TripBriefSummaryCard {
     mustDoCount: brief.mustDo.length,
     constraintsCount: brief.constraints.length,
   };
+}
+
+export function getTripVaultCountsByType(trip: Trip | null) {
+  return getVaultCountsByType(trip?.vaultItems ?? []);
+}
+
+export function getTripVaultExpiringSoonCount(trip: Trip | null) {
+  return getVaultExpiringSoonCount(trip?.vaultItems ?? []);
+}
+
+export function getTripVaultSearchResults(trip: Trip | null, query: string) {
+  return getVaultSearchResults(trip?.vaultItems ?? [], query);
 }

@@ -6,6 +6,7 @@ import type {
   PlaceReminderState,
 } from '../../destination-workspace/model/destinationWorkspace.types';
 import type { ItineraryDay, UpdateActivityDraft } from '../../itinerary-board/model/itinerary.types';
+import type { VaultCountsByType, VaultItem, VaultItemDraft, VaultItemUpdate } from '../../travel-vault/model/travelVault.types';
 
 export type TripStatus = 'draft' | 'planning' | 'booked' | 'in_trip' | 'completed' | 'archived';
 
@@ -87,6 +88,7 @@ export type Trip = {
   notes: TripNote[];
   itineraryDays: ItineraryDay[];
   activeItineraryDayId?: string;
+  vaultItems: VaultItem[];
   mapPoints: PlaceMapPoint[];
   budget: BudgetStub;
   documents: DocumentStub[];
@@ -105,8 +107,12 @@ export type TripCommandComputed = {
   activeDestination: TripDestination | null;
   activeItineraryDay: ItineraryDay | null;
   activeTripPlaces: Place[];
+  activeTripVaultItems: VaultItem[];
   reminderCounts: PlaceReminderCounts;
   tripMapPoints: PlaceMapPoint[];
+  vaultCountsByType: VaultCountsByType;
+  vaultExpiringSoonCount: number;
+  vaultSearchResults: VaultItem[];
 };
 
 export type UpdatePlaceInput = {
@@ -150,6 +156,10 @@ export type TripCommandActions = {
   addActivityToDay: (draft: AddActivityToDayDraft) => string | null;
   updateActivity: (input: UpdateActivityInput) => void;
   removeActivity: (input: RemoveActivityInput) => void;
+  addVaultItem: (draft: VaultItemDraft) => string | null;
+  updateVaultItem: (input: { itemId: string; updates: VaultItemUpdate }) => void;
+  removeVaultItem: (input: { itemId: string }) => void;
+  setVaultSearchQuery: (query: string) => void;
 };
 
 export type TripBriefSummaryCard = {

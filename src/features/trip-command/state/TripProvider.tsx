@@ -1,6 +1,8 @@
 import { createContext, useMemo, useState, type ReactNode } from 'react';
 import type { PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
 import { createActivityFromDraft, normalizeDayActivities } from '../../itinerary-board/adapters/itineraryBoard.adapter';
+import type { VaultItemDraft, VaultItemUpdate } from '../../travel-vault/model/travelVault.types';
+import { buildVaultItem } from '../../travel-vault/model/travelVault.utils';
 import { seedTrips } from '../data/seedTrips';
 import type {
   AddActivityToDayDraft,
@@ -17,6 +19,9 @@ import type {
 } from '../model/trip.types';
 import {
   buildTripDerivedFields,
+  getTripVaultCountsByType,
+  getTripVaultExpiringSoonCount,
+  getTripVaultSearchResults,
   createPlaceFromDraft,
   getActiveDestination,
   getTripReminderCounts,
@@ -39,6 +44,7 @@ function upsertTrip(trips: Trip[], nextTrip: Trip) {
 export function TripProvider({ children }: TripProviderProps) {
   const [trips, setTrips] = useState<Trip[]>(seedTrips);
   const [activeTripId, setActiveTripId] = useState<string | null>(seedTrips[0]?.id ?? null);
+  const [vaultSearchQuery, setVaultSearchQuery] = useState('');
 
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? null;
   const activeDestination = getActiveDestination(activeTrip);
@@ -54,6 +60,10 @@ export function TripProvider({ children }: TripProviderProps) {
   }, [activeTrip, activeDestination]);
   const reminderCounts = useMemo(() => getTripReminderCounts(activeTrip), [activeTrip]);
   const tripMapPoints = activeTrip?.mapPoints ?? [];
+  const activeTripVaultItems = activeTrip?.vaultItems ?? [];
+  const vaultCountsByType = useMemo(() => getTripVaultCountsByType(activeTrip), [activeTrip]);
+  const vaultExpiringSoonCount = useMemo(() => getTripVaultExpiringSoonCount(activeTrip), [activeTrip]);
+  const vaultSearchResults = useMemo(() => getTripVaultSearchResults(activeTrip, vaultSearchQuery), [activeTrip, vaultSearchQuery]);
 
   function patchActiveTrip(applyPatch: (trip: Trip) => Trip) {
     setTrips((currentTrips) => {
@@ -71,6 +81,10 @@ export function TripProvider({ children }: TripProviderProps) {
 
   function setActiveTrip(tripId: string) {
     setActiveTripId(tripId);
+  }
+
+  function setVaultSearchQueryValue(query: string) {
+    setVaultSearchQuery(query);
   }
 
   function updateTripBrief(updates: Partial<TripBrief>) {
@@ -245,6 +259,35 @@ export function TripProvider({ children }: TripProviderProps) {
     }));
   }
 
+  function addVaultItem(draft: VaultItemDraft) {
+    let nextItemId: string | null = null;
+    patchActiveTrip((trip) => {
+      const item = buildVaultItem(trip.id, draft);
+      nextItemId = item.id;
+      return {
+        ...trip,
+        vaultItems: [item, ...trip.vaultItems],
+      };
+    });
+    return nextItemId;
+  }
+
+  function updateVaultItem({ itemId, updates }: { itemId: string; updates: VaultItemUpdate }) {
+    patchActiveTrip((trip) => ({
+      ...trip,
+      vaultItems: trip.vaultItems.map((item) =>
+        item.id === itemId ? { ...item, ...updates, updatedAt: new Date().toISOString() } : item,
+      ),
+    }));
+  }
+
+  function removeVaultItem({ itemId }: { itemId: string }) {
+    patchActiveTrip((trip) => ({
+      ...trip,
+      vaultItems: trip.vaultItems.filter((item) => item.id !== itemId),
+    }));
+  }
+
   const value = useMemo<TripCommandContextValue>(
     () => ({
       trips,
@@ -253,8 +296,12 @@ export function TripProvider({ children }: TripProviderProps) {
       activeDestination,
       activeItineraryDay,
       activeTripPlaces,
+      activeTripVaultItems,
       reminderCounts,
       tripMapPoints,
+      vaultCountsByType,
+      vaultExpiringSoonCount,
+      vaultSearchResults,
       setActiveTrip,
       updateTripBrief,
       setActiveDestination,
@@ -266,8 +313,25 @@ export function TripProvider({ children }: TripProviderProps) {
       addActivityToDay,
       updateActivity,
       removeActivity,
+      addVaultItem,
+      updateVaultItem,
+      removeVaultItem,
+      setVaultSearchQuery: setVaultSearchQueryValue,
     }),
-    [trips, activeTripId, activeTrip, activeDestination, activeItineraryDay, activeTripPlaces, reminderCounts, tripMapPoints],
+    [
+      trips,
+      activeTripId,
+      activeTrip,
+      activeDestination,
+      activeItineraryDay,
+      activeTripPlaces,
+      activeTripVaultItems,
+      reminderCounts,
+      tripMapPoints,
+      vaultCountsByType,
+      vaultExpiringSoonCount,
+      vaultSearchResults,
+    ],
   );
 
   return <TripCommandContext.Provider value={value}>{children}</TripCommandContext.Provider>;

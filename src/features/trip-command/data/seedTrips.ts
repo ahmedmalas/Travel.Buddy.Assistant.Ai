@@ -1,4 +1,5 @@
 import { seedPlaces } from '../../destination-workspace/data/seedPlaces';
+import { seedVaultItems } from '../../travel-vault/data/seedVaultItems';
 import type { Trip } from '../model/trip.types';
 import { buildTripDerivedFields } from '../model/trip.utils';
 
@@ -106,6 +107,7 @@ const baseTrip: Trip = {
       updatedAt: now.toISOString(),
     },
   ],
+  vaultItems: seedVaultItems,
   mapPoints: [],
   budget: {
     currency: 'USD',
