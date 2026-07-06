@@ -18,12 +18,14 @@ export function PlaceNotesPanel({ place, onAddNote }: PlaceNotesPanelProps) {
     );
   }
 
+  const activePlace = place;
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!noteInput.trim()) {
       return;
     }
-    onAddNote({ placeId: place.id, content: noteInput });
+    onAddNote({ placeId: activePlace.id, content: noteInput });
     setNoteInput('');
   }
 
@@ -32,7 +34,7 @@ export function PlaceNotesPanel({ place, onAddNote }: PlaceNotesPanelProps) {
       <div className="flex items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-[0.22em] text-slate-400">Notes panel</p>
-          <h3 className="mt-2 text-lg font-semibold text-white">{place.title}</h3>
+          <h3 className="mt-2 text-lg font-semibold text-white">{activePlace.title}</h3>
         </div>
       </div>
 
@@ -53,12 +55,12 @@ export function PlaceNotesPanel({ place, onAddNote }: PlaceNotesPanelProps) {
       </form>
 
       <div className="mt-5 space-y-3">
-        {place.notes.length === 0 ? (
+        {activePlace.notes.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-white/15 bg-white/[0.02] p-4 text-sm text-slate-300">
             No notes yet for this place.
           </p>
         ) : (
-          place.notes.map((note) => (
+          activePlace.notes.map((note) => (
             <article className="rounded-2xl border border-white/10 bg-slate-900/70 p-3" key={note.id}>
               <p className="text-sm leading-6 text-slate-200">{note.content}</p>
               <p className="mt-2 text-xs text-slate-400">Updated {new Date(note.updatedAt).toLocaleString()}</p>
