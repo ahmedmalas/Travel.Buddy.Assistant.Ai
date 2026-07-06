@@ -6,6 +6,11 @@ export type TravelSection = {
 
 export const travelSections: TravelSection[] = [
   {
+    title: 'Trip Command Centre',
+    eyebrow: 'Operate',
+    description: 'Run every planning stream from one active trip source of truth.',
+  },
+  {
     title: 'Itinerary Builder',
     eyebrow: 'Plan',
     description: 'Create structured day-by-day travel plans from one intelligent workspace.',

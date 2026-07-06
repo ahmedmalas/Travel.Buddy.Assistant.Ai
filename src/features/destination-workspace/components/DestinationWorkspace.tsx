@@ -5,15 +5,17 @@ import { PlaceComposer } from './PlaceComposer';
 import { PlaceNotesPanel } from './PlaceNotesPanel';
 import { WorkspaceHeader } from './WorkspaceHeader';
 import { useDestinationWorkspace } from '../hooks/useDestinationWorkspace';
+import { useTripCommand } from '../../trip-command/state/useTripCommand';
 
 export function DestinationWorkspace() {
   const workspace = useDestinationWorkspace();
+  const { activeDestination } = useTripCommand();
   const mapReadyCount = workspace.places.filter((place) => workspace.isMapReady(place)).length;
 
   return (
     <div className="space-y-5">
       <WorkspaceHeader
-        destinationName="Kyoto, Japan"
+        destinationName={activeDestination ? `${activeDestination.name}, ${activeDestination.country}` : 'No active destination'}
         mapPointsCount={workspace.mapPoints.length}
         mapReadyCount={mapReadyCount}
         placesCount={workspace.places.length}
