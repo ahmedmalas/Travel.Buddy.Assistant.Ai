@@ -56,6 +56,8 @@ export function ItineraryBoard() {
     );
   }
 
+  const selectedDayId = activeItineraryDay.id;
+
   function handleAddActivity(draft: {
     placeId: string;
     startTime: string;
@@ -64,7 +66,7 @@ export function ItineraryBoard() {
     notes?: string;
   }) {
     const nextActivityId = addActivityToDay({
-      dayId: activeItineraryDay.id,
+      dayId: selectedDayId,
       ...draft,
     });
     if (nextActivityId) {
@@ -88,7 +90,7 @@ export function ItineraryBoard() {
       <DaySummaryBar metrics={boardView.summary} />
       <div className="grid gap-5 xl:grid-cols-[0.32fr_0.68fr]">
         <DayRail
-          activeDayId={activeItineraryDay.id}
+          activeDayId={selectedDayId}
           days={activeTrip.itineraryDays}
           onSelectDay={(dayId) => {
             setActiveItineraryDay(dayId);
