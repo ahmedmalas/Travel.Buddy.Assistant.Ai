@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ItineraryDashboard } from '../components/ItineraryDashboard';
 import { ItineraryFilters } from '../components/ItineraryFilters';
 import { ItineraryForm } from '../components/ItineraryForm';
@@ -34,6 +34,19 @@ export function ItinerarySection() {
     () => filteredItems.find((item) => item.id === selectedItemId) ?? null,
     [filteredItems, selectedItemId],
   );
+
+  useEffect(() => {
+    if (filteredItems.length === 0) {
+      if (selectedItemId !== null) {
+        setSelectedItemId(null);
+      }
+      return;
+    }
+
+    if (!selectedItemId || !filteredItems.some((item) => item.id === selectedItemId)) {
+      setSelectedItemId(filteredItems[0].id);
+    }
+  }, [filteredItems, selectedItemId]);
 
   const linkedVaultItems = useMemo(() => {
     if (!selectedItem) return [];

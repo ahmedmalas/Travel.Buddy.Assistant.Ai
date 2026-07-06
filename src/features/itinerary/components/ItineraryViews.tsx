@@ -36,10 +36,19 @@ function ItemCard({
   const typeMeta = itineraryTypeMeta[item.type];
   return (
     <article
+      role="button"
+      tabIndex={0}
+      onClick={() => onSelectItem(item.id)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelectItem(item.id);
+        }
+      }}
       className={`rounded-2xl border p-4 ${selectedItemId === item.id ? 'border-sky-300 bg-sky-400/10' : 'border-white/10 bg-slate-900/60'}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <button type="button" onClick={() => onSelectItem(item.id)} className="text-left">
+        <div className="text-left">
           <p className="text-sm font-semibold text-white">
             <span className="mr-2" aria-hidden>
               {typeMeta.icon}
@@ -49,7 +58,7 @@ function ItemCard({
           <p className="mt-1 text-xs text-slate-300">
             {formatDateTime(item.startDateTime, item.timezone)} → {formatDateTime(item.endDateTime, item.timezone)}
           </p>
-        </button>
+        </div>
         <span className={`rounded-full px-3 py-1 text-xs ${typeMeta.badgeClassName}`}>{typeMeta.label}</span>
       </div>
       <p className="mt-2 text-sm text-slate-300">{item.description || 'No description yet.'}</p>
@@ -64,21 +73,30 @@ function ItemCard({
         <button
           type="button"
           className="rounded-full border border-white/15 px-3 py-1 text-xs text-slate-200"
-          onClick={() => actions.onEdit(item)}
+          onClick={(event) => {
+            event.stopPropagation();
+            actions.onEdit(item);
+          }}
         >
           Edit
         </button>
         <button
           type="button"
           className="rounded-full border border-white/15 px-3 py-1 text-xs text-slate-200"
-          onClick={() => actions.onDuplicate(item)}
+          onClick={(event) => {
+            event.stopPropagation();
+            actions.onDuplicate(item);
+          }}
         >
           Duplicate
         </button>
         <button
           type="button"
           className="rounded-full border border-red-300/40 px-3 py-1 text-xs text-red-200"
-          onClick={() => actions.onDelete(item)}
+          onClick={(event) => {
+            event.stopPropagation();
+            actions.onDelete(item);
+          }}
         >
           Delete
         </button>

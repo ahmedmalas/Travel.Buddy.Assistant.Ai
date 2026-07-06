@@ -61,7 +61,8 @@ function toInputDateTime(isoValue: string): string {
 
 function fromInputDateTime(value: string): string {
   if (!value) return '';
-  const date = new Date(value);
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const date = new Date(normalized);
   return Number.isNaN(date.getTime()) ? '' : date.toISOString();
 }
 
@@ -93,7 +94,9 @@ export function ItineraryForm({ mode, item, vaultOptions, onSubmit, onCancelEdit
     }
   }, [mode, item]);
 
-  const isValid = formValues.title.trim() && formValues.startDateTime && formValues.endDateTime;
+  const startIso = fromInputDateTime(formValues.startDateTime);
+  const endIso = fromInputDateTime(formValues.endDateTime);
+  const isValid = Boolean(formValues.title.trim() && startIso && endIso);
 
   return (
     <section className="rounded-3xl border border-white/10 bg-slate-900/70 p-5">
@@ -110,8 +113,8 @@ export function ItineraryForm({ mode, item, vaultOptions, onSubmit, onCancelEdit
             type: formValues.type,
             title: formValues.title.trim(),
             description: formValues.description.trim(),
-            startDateTime: fromInputDateTime(formValues.startDateTime),
-            endDateTime: fromInputDateTime(formValues.endDateTime),
+            startDateTime: startIso,
+            endDateTime: endIso,
             timezone: formValues.timezone.trim() || 'UTC',
             location: formValues.location.trim(),
             supplier: formValues.supplier.trim(),
@@ -183,10 +186,11 @@ export function ItineraryForm({ mode, item, vaultOptions, onSubmit, onCancelEdit
         <label className="text-xs text-slate-300">
           Start
           <input
-            type="datetime-local"
+            type="text"
             value={formValues.startDateTime}
             onChange={(event) => setFormValues((prev) => ({ ...prev, startDateTime: event.target.value }))}
             className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm"
+            placeholder="YYYY-MM-DDTHH:mm"
             required
           />
         </label>
@@ -194,10 +198,11 @@ export function ItineraryForm({ mode, item, vaultOptions, onSubmit, onCancelEdit
         <label className="text-xs text-slate-300">
           End
           <input
-            type="datetime-local"
+            type="text"
             value={formValues.endDateTime}
             onChange={(event) => setFormValues((prev) => ({ ...prev, endDateTime: event.target.value }))}
             className="mt-1 w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-sm"
+            placeholder="YYYY-MM-DDTHH:mm"
             required
           />
         </label>
