@@ -16,6 +16,11 @@ export const travelSections: TravelSection[] = [
     description: 'Compare destinations, neighbourhoods, seasons, travel styles, and local highlights.',
   },
   {
+    title: 'Destination Workspace',
+    eyebrow: 'Command',
+    description: 'Save places with reminders, notes, priorities, and map-ready structure for each destination.',
+  },
+  {
     title: 'Budget Intelligence',
     eyebrow: 'Compare',
     description: 'Estimate trip costs across flights, hotels, transport, activities, meals, and extras.',
