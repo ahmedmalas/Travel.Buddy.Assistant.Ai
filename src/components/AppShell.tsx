@@ -3,6 +3,7 @@ import { travelSections } from '../data/sections';
 import { DestinationWorkspaceSection } from '../features/destination-workspace/sections/DestinationWorkspaceSection';
 import { TripCommandSection } from '../features/trip-command/sections/TripCommandSection';
 import { TripProvider } from '../features/trip-command/state/TripProvider';
+import { ItineraryBoardSection } from '../features/itinerary-board/sections/ItineraryBoardSection';
 
 export function AppShell() {
   return (
@@ -46,6 +47,8 @@ export function AppShell() {
           </section>
 
           <TripCommandSection />
+
+          <ItineraryBoardSection />
 
           <section className="mx-auto grid max-w-7xl gap-5 px-6 pb-20 md:grid-cols-2 lg:grid-cols-3">
             {travelSections.map((section) => (

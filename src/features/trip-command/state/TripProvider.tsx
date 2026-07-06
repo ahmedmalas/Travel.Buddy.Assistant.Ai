@@ -1,7 +1,20 @@
 import { createContext, useMemo, useState, type ReactNode } from 'react';
-import type { Place, PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
+import type { PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
+import { createActivityFromDraft, normalizeDayActivities } from '../../itinerary-board/adapters/itineraryBoard.adapter';
 import { seedTrips } from '../data/seedTrips';
-import type { Trip, TripBrief, TripCommandComputed, TripCommandState, TripNote } from '../model/trip.types';
+import type {
+  AddActivityToDayDraft,
+  AddTripNoteDraft,
+  Trip,
+  TripBrief,
+  TripCommandActions,
+  TripCommandComputed,
+  TripCommandState,
+  TripNote,
+  RemoveActivityInput,
+  UpdateActivityInput,
+  UpdatePlaceInput,
+} from '../model/trip.types';
 import {
   buildTripDerivedFields,
   createPlaceFromDraft,
@@ -9,27 +22,9 @@ import {
   getTripReminderCounts,
 } from '../model/trip.utils';
 
-type AddTripNoteDraft = {
-  content: string;
-};
-
-type UpdatePlaceInput = {
-  placeId: string;
-  updates: Partial<Omit<Place, 'id' | 'tripId' | 'destinationId' | 'notes' | 'createdAt'>> & {
-    notes?: Place['notes'];
-  };
-};
-
 type TripCommandContextValue = TripCommandState &
-  TripCommandComputed & {
-    setActiveTrip: (tripId: string) => void;
-    updateTripBrief: (updates: Partial<TripBrief>) => void;
-    setActiveDestination: (destinationId: string) => void;
-    addPlace: (draft: PlaceDraft) => string | null;
-    updatePlace: (input: UpdatePlaceInput) => void;
-    addTripNote: (draft: AddTripNoteDraft) => void;
-    addPlaceNote: (payload: { placeId: string; content: string }) => void;
-  };
+  TripCommandComputed &
+  TripCommandActions;
 
 export const TripCommandContext = createContext<TripCommandContextValue | null>(null);
 
@@ -47,6 +42,10 @@ export function TripProvider({ children }: TripProviderProps) {
 
   const activeTrip = trips.find((trip) => trip.id === activeTripId) ?? null;
   const activeDestination = getActiveDestination(activeTrip);
+  const activeItineraryDay =
+    activeTrip?.itineraryDays.find((day) => day.id === activeTrip.activeItineraryDayId) ??
+    activeTrip?.itineraryDays[0] ??
+    null;
   const activeTripPlaces = useMemo(() => {
     if (!activeTrip || !activeDestination) {
       return [];
@@ -88,6 +87,13 @@ export function TripProvider({ children }: TripProviderProps) {
     patchActiveTrip((trip) => ({
       ...trip,
       activeDestinationId: destinationId,
+    }));
+  }
+
+  function setActiveItineraryDay(dayId: string) {
+    patchActiveTrip((trip) => ({
+      ...trip,
+      activeItineraryDayId: dayId,
     }));
   }
 
@@ -169,24 +175,99 @@ export function TripProvider({ children }: TripProviderProps) {
     });
   }
 
+  function addActivityToDay(draft: AddActivityToDayDraft) {
+    let nextActivityId: string | null = null;
+    patchActiveTrip((trip) => {
+      const targetDay = trip.itineraryDays.find((day) => day.id === draft.dayId);
+      if (!targetDay) {
+        return trip;
+      }
+
+      const activity = createActivityFromDraft(trip.id, draft.dayId, draft);
+      nextActivityId = activity.id;
+      return {
+        ...trip,
+        activeItineraryDayId: draft.dayId,
+        itineraryDays: trip.itineraryDays.map((day) =>
+          day.id === draft.dayId
+            ? normalizeDayActivities({
+                ...day,
+                activities: [...day.activities, activity],
+                updatedAt: new Date().toISOString(),
+              })
+            : day,
+        ),
+      };
+    });
+    return nextActivityId;
+  }
+
+  function updateActivity({ activityId, updates }: UpdateActivityInput) {
+    patchActiveTrip((trip) => ({
+      ...trip,
+      itineraryDays: trip.itineraryDays.map((day) => {
+        const hasActivity = day.activities.some((activity) => activity.id === activityId);
+        if (!hasActivity) {
+          return day;
+        }
+        return normalizeDayActivities({
+          ...day,
+          activities: day.activities.map((activity) =>
+            activity.id === activityId
+              ? {
+                  ...activity,
+                  ...updates,
+                  notes: typeof updates.notes === 'string' ? updates.notes.trim() || undefined : activity.notes,
+                  updatedAt: new Date().toISOString(),
+                }
+              : activity,
+          ),
+          updatedAt: new Date().toISOString(),
+        });
+      }),
+    }));
+  }
+
+  function removeActivity({ activityId }: RemoveActivityInput) {
+    patchActiveTrip((trip) => ({
+      ...trip,
+      itineraryDays: trip.itineraryDays.map((day) => {
+        const hasActivity = day.activities.some((activity) => activity.id === activityId);
+        if (!hasActivity) {
+          return day;
+        }
+        return {
+          ...day,
+          activities: day.activities.filter((activity) => activity.id !== activityId),
+          updatedAt: new Date().toISOString(),
+        };
+      }),
+    }));
+  }
+
   const value = useMemo<TripCommandContextValue>(
     () => ({
       trips,
       activeTripId,
       activeTrip,
       activeDestination,
+      activeItineraryDay,
       activeTripPlaces,
       reminderCounts,
       tripMapPoints,
       setActiveTrip,
       updateTripBrief,
       setActiveDestination,
+      setActiveItineraryDay,
       addPlace,
       updatePlace,
       addTripNote,
       addPlaceNote,
+      addActivityToDay,
+      updateActivity,
+      removeActivity,
     }),
-    [trips, activeTripId, activeTrip, activeDestination, activeTripPlaces, reminderCounts, tripMapPoints],
+    [trips, activeTripId, activeTrip, activeDestination, activeItineraryDay, activeTripPlaces, reminderCounts, tripMapPoints],
   );
 
   return <TripCommandContext.Provider value={value}>{children}</TripCommandContext.Provider>;

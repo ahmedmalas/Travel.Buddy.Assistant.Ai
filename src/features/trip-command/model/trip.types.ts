@@ -1,9 +1,11 @@
 import type {
   Place,
+  PlaceDraft,
   PlaceMapPoint,
   PlaceReminderCounts,
   PlaceReminderState,
 } from '../../destination-workspace/model/destinationWorkspace.types';
+import type { ItineraryDay, UpdateActivityDraft } from '../../itinerary-board/model/itinerary.types';
 
 export type TripStatus = 'draft' | 'planning' | 'booked' | 'in_trip' | 'completed' | 'archived';
 
@@ -50,14 +52,6 @@ export type TripNote = {
   updatedAt: string;
 };
 
-export type ItineraryDayStub = {
-  id: string;
-  tripId: string;
-  dayNumber: number;
-  date?: string;
-  summary?: string;
-};
-
 export type BudgetStub = {
   currency: string;
   target?: number;
@@ -91,7 +85,8 @@ export type Trip = {
   places: Place[];
   reminders: TripReminder[];
   notes: TripNote[];
-  itineraryDays: ItineraryDayStub[];
+  itineraryDays: ItineraryDay[];
+  activeItineraryDayId?: string;
   mapPoints: PlaceMapPoint[];
   budget: BudgetStub;
   documents: DocumentStub[];
@@ -108,9 +103,53 @@ export type TripCommandState = {
 export type TripCommandComputed = {
   activeTrip: Trip | null;
   activeDestination: TripDestination | null;
+  activeItineraryDay: ItineraryDay | null;
   activeTripPlaces: Place[];
   reminderCounts: PlaceReminderCounts;
   tripMapPoints: PlaceMapPoint[];
+};
+
+export type UpdatePlaceInput = {
+  placeId: string;
+  updates: Partial<Omit<Place, 'id' | 'tripId' | 'destinationId' | 'notes' | 'createdAt'>> & {
+    notes?: Place['notes'];
+  };
+};
+
+export type AddTripNoteDraft = {
+  content: string;
+};
+
+export type AddActivityToDayDraft = {
+  dayId: string;
+  placeId: string;
+  startTime: string;
+  durationMinutes: number;
+  bufferAfterMinutes: number;
+  notes?: string;
+};
+
+export type UpdateActivityInput = {
+  activityId: string;
+  updates: UpdateActivityDraft;
+};
+
+export type RemoveActivityInput = {
+  activityId: string;
+};
+
+export type TripCommandActions = {
+  setActiveTrip: (tripId: string) => void;
+  updateTripBrief: (updates: Partial<TripBrief>) => void;
+  setActiveDestination: (destinationId: string) => void;
+  setActiveItineraryDay: (dayId: string) => void;
+  addPlace: (draft: PlaceDraft) => string | null;
+  updatePlace: (input: UpdatePlaceInput) => void;
+  addTripNote: (draft: AddTripNoteDraft) => void;
+  addPlaceNote: (payload: { placeId: string; content: string }) => void;
+  addActivityToDay: (draft: AddActivityToDayDraft) => string | null;
+  updateActivity: (input: UpdateActivityInput) => void;
+  removeActivity: (input: RemoveActivityInput) => void;
 };
 
 export type TripBriefSummaryCard = {

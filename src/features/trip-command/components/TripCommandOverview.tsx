@@ -42,7 +42,10 @@ export function TripCommandOverview() {
         <div className="rounded-2xl border border-white/10 bg-slate-950/40 p-4">
           <p className="text-xs uppercase tracking-[0.2em] text-slate-400">System readiness</p>
           <ul className="mt-2 space-y-1 text-sm text-slate-200">
-            <li>Itinerary days: {activeTrip.itineraryDays.length} stub(s)</li>
+            <li>
+              Itinerary: {activeTrip.itineraryDays.length} day(s),{' '}
+              {activeTrip.itineraryDays.reduce((sum, day) => sum + day.activities.length, 0)} activity slot(s)
+            </li>
             <li>Budget model: {activeTrip.budget.currency} stub ready</li>
             <li>Documents: {activeTrip.documents.length} stub(s)</li>
             <li>AI context: {activeTrip.aiContext.persona}</li>

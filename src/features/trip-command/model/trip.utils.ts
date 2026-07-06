@@ -3,6 +3,7 @@ import {
   getReminderState,
   toMapPoints,
 } from '../../destination-workspace/model/destinationWorkspace.utils';
+import { sortActivitiesByStartTime } from '../../itinerary-board/model/itinerary.utils';
 import type { Place, PlaceDraft } from '../../destination-workspace/model/destinationWorkspace.types';
 import type {
   Trip,
@@ -68,7 +69,15 @@ export function deriveTripReminders(tripId: string, places: Place[]): TripRemind
 export function buildTripDerivedFields(trip: Trip): Trip {
   const mapPoints = toMapPoints(trip.places);
   const reminders = deriveTripReminders(trip.id, trip.places);
-  return { ...trip, mapPoints, reminders };
+  return {
+    ...trip,
+    itineraryDays: trip.itineraryDays.map((day) => ({
+      ...day,
+      activities: sortActivitiesByStartTime(day.activities),
+    })),
+    mapPoints,
+    reminders,
+  };
 }
 
 export function getTripReminderCounts(trip: Trip | null) {
