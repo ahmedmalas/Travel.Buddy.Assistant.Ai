@@ -14,6 +14,15 @@ export type TripData = {
 };
 
 type TripBackup = {
+  schema: 'travel-buddy-backup';
+  backupVersion: number;
+  applicationVersion: string;
+  exportedAt: string;
+  tripTitle: string;
+  trip: TripData;
+};
+
+type LegacyTripBackup = {
   schema: 'travel-buddy-backup-v1';
   exportedAt: string;
   trip: TripData;
@@ -27,8 +36,10 @@ type HistoryState = {
 
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const HISTORY_LIMIT = 50;
+const BACKUP_VERSION = 2;
+const APPLICATION_VERSION = '0.1.0';
 
-const defaultTrip: TripData = {
+const seededTrip: TripData = {
   tripName: 'Japan Discovery',
   stops: [
     { id: 's1', title: 'Arrive in Tokyo', day: 1, order: 1, notes: 'Narita transfer and hotel check-in' },
@@ -63,19 +74,24 @@ const isTripData = (value: unknown): value is TripData => {
   return typeof trip.tripName === 'string' && Array.isArray(trip.stops) && trip.stops.every(isTripStop);
 };
 
+const cloneTrip = (trip: TripData): TripData => ({
+  tripName: trip.tripName,
+  stops: trip.stops.map((stop) => ({ ...stop })),
+});
+
 const parsePersistedTrip = (rawValue: string | null): TripData => {
   if (!rawValue) {
-    return defaultTrip;
+    return cloneTrip(seededTrip);
   }
   try {
     const parsed: unknown = JSON.parse(rawValue);
     if (isTripData(parsed)) {
-      return parsed;
+      return sanitizeTrip(parsed);
     }
   } catch {
-    return defaultTrip;
+    return cloneTrip(seededTrip);
   }
-  return defaultTrip;
+  return cloneTrip(seededTrip);
 };
 
 const dedupe = (items: string[]): string[] => Array.from(new Set(items));
@@ -115,21 +131,82 @@ const sanitizeTrip = (trip: TripData): TripData => ({
   })),
 });
 
+const assertRecord = (value: unknown, message: string): Record<string, unknown> => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error(message);
+  }
+  return value as Record<string, unknown>;
+};
+
+const ensureString = (value: unknown, message: string): string => {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new Error(message);
+  }
+  return value;
+};
+
+const ensureNumber = (value: unknown, message: string): number => {
+  if (typeof value !== 'number' || Number.isNaN(value)) {
+    throw new Error(message);
+  }
+  return value;
+};
+
 const parseTripBackup = (rawValue: string): TripData => {
-  const parsed: unknown = JSON.parse(rawValue);
-
-  if (isTripData(parsed)) {
-    return sanitizeTrip(parsed);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    throw new Error('Backup file is not valid JSON.');
   }
 
-  if (parsed && typeof parsed === 'object') {
-    const backup = parsed as Partial<TripBackup>;
-    if (backup.schema === 'travel-buddy-backup-v1' && isTripData(backup.trip)) {
-      return sanitizeTrip(backup.trip);
+  const parsedObject = assertRecord(parsed, 'Backup file must contain an object.');
+
+  if ('schema' in parsedObject && parsedObject.schema === 'travel-buddy-backup-v1') {
+    const legacyBackup = parsedObject as Partial<LegacyTripBackup>;
+    if (!isTripData(legacyBackup.trip)) {
+      throw new Error('Legacy backup is missing trip data.');
     }
+    return sanitizeTrip(legacyBackup.trip);
   }
 
-  throw new Error('Backup file format is invalid.');
+  if (!('schema' in parsedObject)) {
+    if (isTripData(parsedObject)) {
+      return sanitizeTrip(parsedObject);
+    }
+    throw new Error('Backup is missing required schema metadata.');
+  }
+
+  if (parsedObject.schema !== 'travel-buddy-backup') {
+    throw new Error('Backup schema is unsupported.');
+  }
+
+  const backupVersion = ensureNumber(parsedObject.backupVersion, 'Backup version is missing or invalid.');
+  if (!Number.isInteger(backupVersion)) {
+    throw new Error('Backup version must be an integer.');
+  }
+  if (backupVersion !== BACKUP_VERSION) {
+    throw new Error(`Backup version ${backupVersion} is not supported by this app.`);
+  }
+
+  ensureString(parsedObject.applicationVersion, 'Application version is missing from backup.');
+  ensureString(parsedObject.exportedAt, 'Export timestamp is missing from backup.');
+  ensureString(parsedObject.tripTitle, 'Trip title is missing from backup.');
+
+  if (!isTripData(parsedObject.trip)) {
+    throw new Error('Trip data structure is malformed or missing required fields.');
+  }
+
+  return sanitizeTrip(parsedObject.trip);
+};
+
+const formatBackupTimestamp = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}-${hours}${minutes}`;
 };
 
 export function useTripStore() {
@@ -247,12 +324,35 @@ export function useTripStore() {
   };
 
   const toBackupJson = (): string => {
+    const now = new Date();
     const backup: TripBackup = {
-      schema: 'travel-buddy-backup-v1',
-      exportedAt: new Date().toISOString(),
+      schema: 'travel-buddy-backup',
+      backupVersion: BACKUP_VERSION,
+      applicationVersion: APPLICATION_VERSION,
+      exportedAt: now.toISOString(),
+      tripTitle: history.present.tripName,
       trip: history.present,
     };
     return JSON.stringify(backup, null, 2);
+  };
+
+  const backupFileName = (): string => `travel-buddy-${formatBackupTimestamp(new Date())}.json`;
+
+  const resetTrip = () => {
+    setHistory({
+      past: [],
+      present: cloneTrip(seededTrip),
+      future: [],
+    });
+  };
+
+  const clearLocalData = () => {
+    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    setHistory({
+      past: [],
+      present: cloneTrip(seededTrip),
+      future: [],
+    });
   };
 
   return {
@@ -268,5 +368,8 @@ export function useTripStore() {
     replaceTrip,
     parseTripBackup,
     toBackupJson,
+    backupFileName,
+    resetTrip,
+    clearLocalData,
   };
 }

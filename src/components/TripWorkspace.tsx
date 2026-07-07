@@ -29,6 +29,9 @@ export function TripWorkspace() {
     replaceTrip,
     parseTripBackup,
     toBackupJson,
+    backupFileName,
+    resetTrip,
+    clearLocalData,
   } = useTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -43,10 +46,10 @@ export function TripWorkspace() {
     const url = URL.createObjectURL(blob);
     const anchor = window.document.createElement('a');
     anchor.href = url;
-    anchor.download = `${trip.tripName.toLowerCase().replace(/[^a-z0-9]+/g, '-') || 'trip'}-backup.json`;
+    anchor.download = backupFileName();
     anchor.click();
     URL.revokeObjectURL(url);
-    setFeedback({ kind: 'success', message: 'Backup exported.' });
+    setFeedback({ kind: 'success', message: `Backup exported: ${anchor.download}` });
   };
 
   const handleImportClick = () => {
@@ -65,7 +68,7 @@ export function TripWorkspace() {
       const importedTrip = parseTripBackup(content);
       const confirmed = window.confirm('This will replace your current trip data. Continue?');
       if (!confirmed) {
-        setFeedback({ kind: 'error', message: 'Import cancelled.' });
+        setFeedback({ kind: 'success', message: 'Import cancelled.' });
         return;
       }
       replaceTrip(importedTrip);
@@ -74,6 +77,24 @@ export function TripWorkspace() {
       const message = error instanceof Error ? error.message : 'Backup import failed.';
       setFeedback({ kind: 'error', message });
     }
+  };
+
+  const handleResetTrip = () => {
+    const confirmed = window.confirm('Reset trip to the seeded demo and clear undo/redo history?');
+    if (!confirmed) {
+      return;
+    }
+    resetTrip();
+    setFeedback({ kind: 'success', message: 'Trip reset to seeded demo data.' });
+  };
+
+  const handleClearLocalData = () => {
+    const confirmed = window.confirm('Clear all locally stored trip data and restore seeded demo trip?');
+    if (!confirmed) {
+      return;
+    }
+    clearLocalData();
+    setFeedback({ kind: 'success', message: 'Local trip data cleared and seeded trip restored.' });
   };
 
   return (
@@ -98,6 +119,20 @@ export function TripWorkspace() {
               className="rounded-full border border-white/20 px-4 py-2 text-sm text-slate-100 transition hover:border-sky-300"
             >
               Import backup
+            </button>
+            <button
+              type="button"
+              onClick={handleResetTrip}
+              className="rounded-full border border-amber-300/40 px-4 py-2 text-sm text-amber-100 transition hover:border-amber-300"
+            >
+              Reset trip
+            </button>
+            <button
+              type="button"
+              onClick={handleClearLocalData}
+              className="rounded-full border border-rose-300/40 px-4 py-2 text-sm text-rose-100 transition hover:border-rose-300"
+            >
+              Clear local data
             </button>
             <input ref={inputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
           </div>
