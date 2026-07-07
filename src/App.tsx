@@ -1,5 +1,10 @@
+import { AppShell } from './components/AppShell';
 import { ItinerarySection } from './features/itinerary/sections/ItinerarySection';
 
 export default function App() {
-  return <ItinerarySection />;
+  return (
+    <AppShell>
+      <ItinerarySection />
+    </AppShell>
+  );
 }

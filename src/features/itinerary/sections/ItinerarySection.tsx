@@ -75,7 +75,7 @@ export function ItinerarySection() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 px-6 py-8 text-white">
+    <div className="px-6 py-8 text-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
         <header className="flex flex-wrap items-end justify-between gap-4">
           <div>
