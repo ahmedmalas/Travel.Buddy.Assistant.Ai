@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react';
-import { useTripStore } from '../store/useTripStore';
+import { useTripStore, type ImportPreview, type TripData } from '../store/useTripStore';
 
 type Feedback = {
   kind: 'success' | 'error';
@@ -27,7 +27,7 @@ export function TripWorkspace() {
     moveStop,
     searchStops,
     replaceTrip,
-    parseTripBackup,
+    parseTripBackupPreview,
     toBackupJson,
     backupFileName,
     resetTrip,
@@ -36,6 +36,7 @@ export function TripWorkspace() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const [pendingImport, setPendingImport] = useState<{ trip: TripData; preview: ImportPreview; fileName: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const matchedIds = new Set(searchStops(searchQuery));
   const days = groupStopsByDay(sortedStops);
@@ -53,6 +54,7 @@ export function TripWorkspace() {
   };
 
   const handleImportClick = () => {
+    setPendingImport(null);
     inputRef.current?.click();
   };
 
@@ -65,18 +67,28 @@ export function TripWorkspace() {
 
     try {
       const content = await file.text();
-      const importedTrip = parseTripBackup(content);
-      const confirmed = window.confirm('This will replace your current trip data. Continue?');
-      if (!confirmed) {
-        setFeedback({ kind: 'success', message: 'Import cancelled.' });
-        return;
-      }
-      replaceTrip(importedTrip);
-      setFeedback({ kind: 'success', message: 'Backup restored successfully.' });
+      const parsed = parseTripBackupPreview(content);
+      setPendingImport({ ...parsed, fileName: file.name });
+      setFeedback(null);
     } catch (error) {
+      setPendingImport(null);
       const message = error instanceof Error ? error.message : 'Backup import failed.';
       setFeedback({ kind: 'error', message });
     }
+  };
+
+  const handleConfirmImport = () => {
+    if (!pendingImport) {
+      return;
+    }
+    replaceTrip(pendingImport.trip);
+    setPendingImport(null);
+    setFeedback({ kind: 'success', message: 'Backup restored successfully.' });
+  };
+
+  const handleCancelImport = () => {
+    setPendingImport(null);
+    setFeedback({ kind: 'success', message: 'Import cancelled. Current trip unchanged.' });
   };
 
   const handleResetTrip = () => {
@@ -175,6 +187,55 @@ export function TripWorkspace() {
 
         {feedback ? (
           <p className={`mt-4 text-sm ${feedback.kind === 'success' ? 'text-emerald-300' : 'text-rose-300'}`}>{feedback.message}</p>
+        ) : null}
+
+        {pendingImport ? (
+          <div className="mt-4 rounded-2xl border border-sky-300/30 bg-sky-500/10 p-4">
+            <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Import preview</p>
+            <p className="mt-2 text-sm text-slate-300">File: {pendingImport.fileName}</p>
+            <dl className="mt-3 grid gap-2 text-sm text-slate-200 md:grid-cols-2">
+              <div>
+                <dt className="text-slate-400">Backup version</dt>
+                <dd>{pendingImport.preview.backupVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Application version</dt>
+                <dd>{pendingImport.preview.applicationVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Exported timestamp</dt>
+                <dd>{pendingImport.preview.exportedAt}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Trip title</dt>
+                <dd>{pendingImport.preview.tripTitle}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Itinerary items</dt>
+                <dd>{pendingImport.preview.itineraryItemCount}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Linked vault/doc records</dt>
+                <dd>{pendingImport.preview.linkedRecordCount ?? 'Not provided'}</dd>
+              </div>
+            </dl>
+            <div className="mt-4 flex gap-2">
+              <button
+                type="button"
+                onClick={handleConfirmImport}
+                className="rounded-full border border-emerald-300/40 px-4 py-2 text-sm text-emerald-100 transition hover:border-emerald-300"
+              >
+                Confirm import
+              </button>
+              <button
+                type="button"
+                onClick={handleCancelImport}
+                className="rounded-full border border-white/20 px-4 py-2 text-sm text-slate-100 transition hover:border-white/40"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         ) : null}
 
         <div className="mt-6 grid gap-4 md:grid-cols-2">

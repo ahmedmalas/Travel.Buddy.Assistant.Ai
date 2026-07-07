@@ -35,6 +35,15 @@ type HistoryState = {
   future: TripData[];
 };
 
+export type ImportPreview = {
+  backupVersion: string;
+  applicationVersion: string;
+  exportedAt: string;
+  tripTitle: string;
+  itineraryItemCount: number;
+  linkedRecordCount: number | null;
+};
+
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const HISTORY_LIMIT = 50;
 const BACKUP_VERSION = 2;
@@ -153,7 +162,38 @@ const ensureNumber = (value: unknown, message: string): number => {
   return value;
 };
 
-const parseTripBackup = (rawValue: string): TripData => {
+const countLinkedRecords = (root: Record<string, unknown>): number | null => {
+  const possibleCounts: number[] = [];
+  const sources: unknown[] = [
+    root.vaultRecords,
+    root.docRecords,
+    root.documents,
+    root.linkedRecords,
+    root.vault,
+    (root.trip as Record<string, unknown> | undefined)?.vaultRecords,
+    (root.trip as Record<string, unknown> | undefined)?.docRecords,
+    (root.trip as Record<string, unknown> | undefined)?.documents,
+    (root.trip as Record<string, unknown> | undefined)?.linkedRecords,
+    (root.trip as Record<string, unknown> | undefined)?.vault,
+  ];
+
+  for (const source of sources) {
+    if (Array.isArray(source)) {
+      possibleCounts.push(source.length);
+      continue;
+    }
+    if (source && typeof source === 'object') {
+      possibleCounts.push(Object.keys(source).length);
+    }
+  }
+
+  if (possibleCounts.length === 0) {
+    return null;
+  }
+  return Math.max(...possibleCounts);
+};
+
+const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: ImportPreview } => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawValue);
@@ -168,12 +208,34 @@ const parseTripBackup = (rawValue: string): TripData => {
     if (!isTripData(legacyBackup.trip)) {
       throw new Error('Legacy backup is missing trip data.');
     }
-    return sanitizeTrip(legacyBackup.trip);
+    const trip = sanitizeTrip(legacyBackup.trip);
+    return {
+      trip,
+      preview: {
+        backupVersion: 'legacy-v1',
+        applicationVersion: 'Not provided',
+        exportedAt: typeof legacyBackup.exportedAt === 'string' ? legacyBackup.exportedAt : 'Not provided',
+        tripTitle: trip.tripName,
+        itineraryItemCount: trip.stops.length,
+        linkedRecordCount: countLinkedRecords(parsedObject),
+      },
+    };
   }
 
   if (!('schema' in parsedObject)) {
     if (isTripData(parsedObject)) {
-      return sanitizeTrip(parsedObject);
+      const trip = sanitizeTrip(parsedObject);
+      return {
+        trip,
+        preview: {
+          backupVersion: 'plain-trip-data',
+          applicationVersion: 'Not provided',
+          exportedAt: 'Not provided',
+          tripTitle: trip.tripName,
+          itineraryItemCount: trip.stops.length,
+          linkedRecordCount: countLinkedRecords(parsedObject),
+        },
+      };
     }
     throw new Error('Backup is missing required schema metadata.');
   }
@@ -198,8 +260,21 @@ const parseTripBackup = (rawValue: string): TripData => {
     throw new Error('Trip data structure is malformed or missing required fields.');
   }
 
-  return sanitizeTrip(parsedObject.trip);
+  const trip = sanitizeTrip(parsedObject.trip);
+  return {
+    trip,
+    preview: {
+      backupVersion: String(backupVersion),
+      applicationVersion: parsedObject.applicationVersion,
+      exportedAt: parsedObject.exportedAt,
+      tripTitle: parsedObject.tripTitle,
+      itineraryItemCount: trip.stops.length,
+      linkedRecordCount: countLinkedRecords(parsedObject),
+    },
+  };
 };
+
+const parseTripBackup = (rawValue: string): TripData => parseTripBackupPreview(rawValue).trip;
 
 const formatBackupTimestamp = (date: Date): string => {
   const year = date.getFullYear();
@@ -372,5 +447,6 @@ export function useTripStore() {
     backupFileName,
     resetTrip,
     clearLocalData,
+    parseTripBackupPreview,
   };
 }
