@@ -44,8 +44,20 @@ export type ImportPreview = {
   linkedRecordCount: number | null;
 };
 
+export type BackupSnapshot = {
+  id: string;
+  createdAt: string;
+  tripTitle: string;
+  itineraryItemCount: number;
+  backupVersion: number;
+  applicationVersion: string;
+  trip: TripData;
+};
+
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
+const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 const HISTORY_LIMIT = 50;
+const SNAPSHOT_LIMIT = 10;
 const BACKUP_VERSION = 2;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 
@@ -102,6 +114,40 @@ const parsePersistedTrip = (rawValue: string | null): TripData => {
     return cloneTrip(seededTrip);
   }
   return cloneTrip(seededTrip);
+};
+
+const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
+  if (!value || typeof value !== 'object') {
+    return false;
+  }
+  const snapshot = value as Partial<BackupSnapshot>;
+  return (
+    typeof snapshot.id === 'string' &&
+    typeof snapshot.createdAt === 'string' &&
+    typeof snapshot.tripTitle === 'string' &&
+    typeof snapshot.itineraryItemCount === 'number' &&
+    typeof snapshot.backupVersion === 'number' &&
+    typeof snapshot.applicationVersion === 'string' &&
+    isTripData(snapshot.trip)
+  );
+};
+
+const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
+  if (!rawValue) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter(isBackupSnapshot).slice(0, SNAPSHOT_LIMIT).map((snapshot) => ({
+      ...snapshot,
+      trip: sanitizeTrip(snapshot.trip),
+    }));
+  } catch {
+    return [];
+  }
 };
 
 const dedupe = (items: string[]): string[] => Array.from(new Set(items));
@@ -276,6 +322,21 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
 
 const parseTripBackup = (rawValue: string): TripData => parseTripBackupPreview(rawValue).trip;
 
+const tripSignature = (trip: TripData): string => JSON.stringify(sanitizeTrip(trip));
+
+const makeSnapshot = (trip: TripData): BackupSnapshot => {
+  const sanitizedTrip = sanitizeTrip(trip);
+  return {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    tripTitle: sanitizedTrip.tripName,
+    itineraryItemCount: sanitizedTrip.stops.length,
+    backupVersion: BACKUP_VERSION,
+    applicationVersion: APPLICATION_VERSION,
+    trip: sanitizedTrip,
+  };
+};
+
 const formatBackupTimestamp = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -291,19 +352,54 @@ export function useTripStore() {
     present: parsePersistedTrip(window.localStorage.getItem(LOCAL_STORAGE_KEY)),
     future: [],
   }));
+  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() =>
+    parsePersistedSnapshots(window.localStorage.getItem(LOCAL_SNAPSHOT_STORAGE_KEY)),
+  );
 
   useEffect(() => {
     window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history.present));
   }, [history.present]);
+  useEffect(() => {
+    window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshots));
+  }, [snapshots]);
 
   const searchIndex = useMemo(() => buildSearchIndex(history.present), [history.present]);
 
-  const updateTrip = (updater: (current: TripData) => TripData) => {
-    setHistory((currentHistory) => updateHistory(currentHistory, sanitizeTrip(updater(currentHistory.present))));
+  const pushSnapshot = (trip: TripData) => {
+    const snapshot = makeSnapshot(trip);
+    setSnapshots((currentSnapshots) => [snapshot, ...currentSnapshots].slice(0, SNAPSHOT_LIMIT));
   };
 
-  const replaceTrip = (trip: TripData) => {
-    setHistory((currentHistory) => updateHistory(currentHistory, sanitizeTrip(trip)));
+  const updateTrip = (updater: (current: TripData) => TripData, options?: { createSnapshot?: boolean }) => {
+    const shouldCreateSnapshot = options?.createSnapshot ?? false;
+    setHistory((currentHistory) => {
+      const nextTrip = sanitizeTrip(updater(currentHistory.present));
+      if (tripSignature(nextTrip) === tripSignature(currentHistory.present)) {
+        return currentHistory;
+      }
+      if (shouldCreateSnapshot) {
+        pushSnapshot(nextTrip);
+      }
+      return updateHistory(currentHistory, nextTrip);
+    });
+  };
+
+  const replaceTrip = (trip: TripData, options?: { createSnapshot?: boolean; clearHistory?: boolean }) => {
+    const shouldCreateSnapshot = options?.createSnapshot ?? false;
+    const shouldClearHistory = options?.clearHistory ?? false;
+    setHistory((currentHistory) => {
+      const nextTrip = sanitizeTrip(trip);
+      if (tripSignature(nextTrip) === tripSignature(currentHistory.present)) {
+        return currentHistory;
+      }
+      if (shouldCreateSnapshot) {
+        pushSnapshot(nextTrip);
+      }
+      if (shouldClearHistory) {
+        return { past: [], present: nextTrip, future: [] };
+      }
+      return updateHistory(currentHistory, nextTrip);
+    });
   };
 
   const undo = () => {
@@ -362,7 +458,7 @@ export function useTripStore() {
           return stop;
         }),
       };
-    });
+    }, { createSnapshot: true });
   };
 
   const addStop = () => {
@@ -382,7 +478,45 @@ export function useTripStore() {
           },
         ],
       };
-    });
+    }, { createSnapshot: true });
+  };
+
+  const editStop = (stopId: string, title: string, notes: string) => {
+    updateTrip((trip) => ({
+      ...trip,
+      stops: trip.stops.map((stop) => (stop.id === stopId ? { ...stop, title, notes } : stop)),
+    }), { createSnapshot: true });
+  };
+
+  const deleteStop = (stopId: string) => {
+    updateTrip((trip) => ({
+      ...trip,
+      stops: trip.stops.filter((stop) => stop.id !== stopId),
+    }), { createSnapshot: true });
+  };
+
+  const duplicateStop = (stopId: string) => {
+    updateTrip((trip) => {
+      const stops = sortStops(trip.stops);
+      const target = stops.find((stop) => stop.id === stopId);
+      if (!target) {
+        return trip;
+      }
+      const dayStops = stops.filter((stop) => stop.day === target.day);
+      const maxOrder = dayStops.reduce((max, stop) => Math.max(max, stop.order), 0);
+      return {
+        ...trip,
+        stops: [
+          ...trip.stops,
+          {
+            ...target,
+            id: `s-${crypto.randomUUID()}`,
+            order: maxOrder + 1,
+            title: `${target.title} (copy)`,
+          },
+        ],
+      };
+    }, { createSnapshot: true });
   };
 
   const searchStops = (query: string): string[] => {
@@ -415,6 +549,13 @@ export function useTripStore() {
   const backupFileName = (): string => `travel-buddy-${formatBackupTimestamp(new Date())}.json`;
 
   const resetTrip = () => {
+    replaceTrip(cloneTrip(seededTrip), { clearHistory: true, createSnapshot: true });
+  };
+
+  const clearLocalData = () => {
+    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
+    window.localStorage.removeItem(LOCAL_SNAPSHOT_STORAGE_KEY);
+    setSnapshots([]);
     setHistory({
       past: [],
       present: cloneTrip(seededTrip),
@@ -422,13 +563,20 @@ export function useTripStore() {
     });
   };
 
-  const clearLocalData = () => {
-    window.localStorage.removeItem(LOCAL_STORAGE_KEY);
-    setHistory({
-      past: [],
-      present: cloneTrip(seededTrip),
-      future: [],
-    });
+  const importTrip = (trip: TripData) => {
+    replaceTrip(trip, { createSnapshot: true });
+  };
+
+  const restoreSnapshot = (snapshotId: string) => {
+    const snapshot = snapshots.find((item) => item.id === snapshotId);
+    if (!snapshot) {
+      throw new Error('Snapshot not found.');
+    }
+    replaceTrip(snapshot.trip, { createSnapshot: false });
+  };
+
+  const deleteSnapshot = (snapshotId: string) => {
+    setSnapshots((currentSnapshots) => currentSnapshots.filter((snapshot) => snapshot.id !== snapshotId));
   };
 
   return {
@@ -437,6 +585,9 @@ export function useTripStore() {
     canRedo: history.future.length > 0,
     sortedStops: sortStops(history.present.stops),
     addStop,
+    editStop,
+    deleteStop,
+    duplicateStop,
     undo,
     redo,
     moveStop,
@@ -447,6 +598,10 @@ export function useTripStore() {
     backupFileName,
     resetTrip,
     clearLocalData,
+    importTrip,
     parseTripBackupPreview,
+    snapshots,
+    restoreSnapshot,
+    deleteSnapshot,
   };
 }

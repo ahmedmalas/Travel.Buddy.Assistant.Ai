@@ -1,5 +1,5 @@
-import { useRef, useState, type ChangeEvent } from 'react';
-import { useTripStore, type ImportPreview, type TripData } from '../store/useTripStore';
+import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useTripStore, type BackupSnapshot, type ImportPreview, type TripData } from '../store/useTripStore';
 
 type Feedback = {
   kind: 'success' | 'error';
@@ -22,24 +22,35 @@ export function TripWorkspace() {
     canUndo,
     canRedo,
     addStop,
+    editStop,
+    deleteStop,
+    duplicateStop,
     undo,
     redo,
     moveStop,
     searchStops,
-    replaceTrip,
     parseTripBackupPreview,
     toBackupJson,
     backupFileName,
     resetTrip,
     clearLocalData,
+    importTrip,
+    snapshots,
+    restoreSnapshot,
+    deleteSnapshot,
   } = useTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
   const [pendingImport, setPendingImport] = useState<{ trip: TripData; preview: ImportPreview; fileName: string } | null>(null);
+  const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<BackupSnapshot | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const matchedIds = new Set(searchStops(searchQuery));
   const days = groupStopsByDay(sortedStops);
+  const snapshotPreviewDate = useMemo(
+    () => (pendingSnapshotRestore ? new Date(pendingSnapshotRestore.createdAt).toLocaleString() : ''),
+    [pendingSnapshotRestore],
+  );
 
   const handleExport = () => {
     const backupJson = toBackupJson();
@@ -81,7 +92,7 @@ export function TripWorkspace() {
     if (!pendingImport) {
       return;
     }
-    replaceTrip(pendingImport.trip);
+    importTrip(pendingImport.trip);
     setPendingImport(null);
     setFeedback({ kind: 'success', message: 'Backup restored successfully.' });
   };
@@ -107,6 +118,58 @@ export function TripWorkspace() {
     }
     clearLocalData();
     setFeedback({ kind: 'success', message: 'Local trip data cleared and seeded trip restored.' });
+  };
+
+  const handleEditStop = (stopId: string, currentTitle: string, currentNotes: string) => {
+    const nextTitle = window.prompt('Edit itinerary item title', currentTitle);
+    if (nextTitle === null) {
+      return;
+    }
+    const nextNotes = window.prompt('Edit itinerary item notes', currentNotes);
+    if (nextNotes === null) {
+      return;
+    }
+    editStop(stopId, nextTitle, nextNotes);
+    setFeedback({ kind: 'success', message: 'Itinerary item updated and snapshot saved.' });
+  };
+
+  const handleDeleteStop = (stopId: string) => {
+    const confirmed = window.confirm('Delete this itinerary item?');
+    if (!confirmed) {
+      return;
+    }
+    deleteStop(stopId);
+    setFeedback({ kind: 'success', message: 'Itinerary item deleted and snapshot saved.' });
+  };
+
+  const handleDuplicateStop = (stopId: string) => {
+    duplicateStop(stopId);
+    setFeedback({ kind: 'success', message: 'Itinerary item duplicated and snapshot saved.' });
+  };
+
+  const handleRequestRestoreSnapshot = (snapshot: BackupSnapshot) => {
+    setPendingSnapshotRestore(snapshot);
+  };
+
+  const handleConfirmRestoreSnapshot = () => {
+    if (!pendingSnapshotRestore) {
+      return;
+    }
+    restoreSnapshot(pendingSnapshotRestore.id);
+    setPendingSnapshotRestore(null);
+    setFeedback({ kind: 'success', message: 'Snapshot restored successfully.' });
+  };
+
+  const handleDeleteSnapshot = (snapshotId: string) => {
+    const confirmed = window.confirm('Delete this snapshot from history?');
+    if (!confirmed) {
+      return;
+    }
+    deleteSnapshot(snapshotId);
+    if (pendingSnapshotRestore?.id === snapshotId) {
+      setPendingSnapshotRestore(null);
+    }
+    setFeedback({ kind: 'success', message: 'Snapshot deleted.' });
   };
 
   return (
@@ -269,6 +332,27 @@ export function TripWorkspace() {
                         >
                           Move down
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => handleEditStop(stop.id, stop.title, stop.notes)}
+                          className="rounded-full border border-white/20 px-3 py-1 text-xs"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDuplicateStop(stop.id)}
+                          className="rounded-full border border-white/20 px-3 py-1 text-xs"
+                        >
+                          Duplicate
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteStop(stop.id)}
+                          className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </li>
                   );
@@ -277,6 +361,75 @@ export function TripWorkspace() {
             </article>
           ))}
         </div>
+
+        <section className="mt-6 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Backup history</p>
+            <p className="text-xs text-slate-400">{snapshots.length} / 10 snapshots</p>
+          </div>
+
+          {snapshots.length === 0 ? (
+            <p className="mt-3 text-sm text-slate-400">No automatic snapshots yet.</p>
+          ) : (
+            <ul className="mt-3 space-y-2">
+              {snapshots.map((snapshot) => (
+                <li key={snapshot.id} className="rounded-xl border border-white/10 p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-sm text-slate-200">
+                      <p>{snapshot.tripTitle}</p>
+                      <p className="text-xs text-slate-400">
+                        {new Date(snapshot.createdAt).toLocaleString()} • {snapshot.itineraryItemCount} items
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleRequestRestoreSnapshot(snapshot)}
+                        className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSnapshot(snapshot.id)}
+                        className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+
+          {pendingSnapshotRestore ? (
+            <div className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-4">
+              <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">Snapshot preview</p>
+              <p className="mt-2 text-sm text-slate-200">{pendingSnapshotRestore.tripTitle}</p>
+              <p className="text-xs text-slate-400">
+                {snapshotPreviewDate} • {pendingSnapshotRestore.itineraryItemCount} items • backup v
+                {pendingSnapshotRestore.backupVersion} • app v{pendingSnapshotRestore.applicationVersion}
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmRestoreSnapshot}
+                  className="rounded-full border border-emerald-300/40 px-4 py-2 text-sm text-emerald-100"
+                >
+                  Confirm restore
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingSnapshotRestore(null)}
+                  className="rounded-full border border-white/20 px-4 py-2 text-sm text-slate-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </section>
       </div>
     </section>
   );
