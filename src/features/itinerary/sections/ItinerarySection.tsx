@@ -85,9 +85,29 @@ export function ItinerarySection() {
               {store.trip.destination} • {store.trip.startDate} → {store.trip.endDate}
             </p>
           </div>
-          <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-right text-xs text-slate-300">
-            <p>Total itinerary items: {allItems.length}</p>
-            <p>Travel Vault docs: {store.trip.travelVaultItems.length}</p>
+          <div className="flex flex-col items-end gap-2">
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={store.undoItineraryAction}
+                disabled={!store.canUndo}
+                className="rounded-full border border-white/20 px-4 py-1 text-xs text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Undo
+              </button>
+              <button
+                type="button"
+                onClick={store.redoItineraryAction}
+                disabled={!store.canRedo}
+                className="rounded-full border border-white/20 px-4 py-1 text-xs text-slate-200 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Redo
+              </button>
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-slate-900/70 px-4 py-3 text-right text-xs text-slate-300">
+              <p>Total itinerary items: {allItems.length}</p>
+              <p>Travel Vault docs: {store.trip.travelVaultItems.length}</p>
+            </div>
           </div>
         </header>
 
