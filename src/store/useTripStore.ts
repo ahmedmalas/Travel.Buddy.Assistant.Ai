@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import packageMetadata from '../../package.json';
 
 export type TripStop = {
   id: string;
@@ -37,7 +38,7 @@ type HistoryState = {
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const HISTORY_LIMIT = 50;
 const BACKUP_VERSION = 2;
-const APPLICATION_VERSION = '0.1.0';
+const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 
 const seededTrip: TripData = {
   tripName: 'Japan Discovery',
