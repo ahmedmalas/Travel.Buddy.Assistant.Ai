@@ -252,9 +252,9 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
     throw new Error(`Backup version ${backupVersion} is not supported by this app.`);
   }
 
-  ensureString(parsedObject.applicationVersion, 'Application version is missing from backup.');
-  ensureString(parsedObject.exportedAt, 'Export timestamp is missing from backup.');
-  ensureString(parsedObject.tripTitle, 'Trip title is missing from backup.');
+  const applicationVersion = ensureString(parsedObject.applicationVersion, 'Application version is missing from backup.');
+  const exportedAt = ensureString(parsedObject.exportedAt, 'Export timestamp is missing from backup.');
+  const tripTitle = ensureString(parsedObject.tripTitle, 'Trip title is missing from backup.');
 
   if (!isTripData(parsedObject.trip)) {
     throw new Error('Trip data structure is malformed or missing required fields.');
@@ -265,9 +265,9 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
     trip,
     preview: {
       backupVersion: String(backupVersion),
-      applicationVersion: parsedObject.applicationVersion,
-      exportedAt: parsedObject.exportedAt,
-      tripTitle: parsedObject.tripTitle,
+      applicationVersion,
+      exportedAt,
+      tripTitle,
       itineraryItemCount: trip.stops.length,
       linkedRecordCount: countLinkedRecords(parsedObject),
     },
