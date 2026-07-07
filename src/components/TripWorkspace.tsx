@@ -9,6 +9,37 @@ type Feedback = {
 type SnapshotSort = 'newest' | 'oldest' | 'trip-title' | 'item-count';
 type SnapshotTimeFilter = 'all' | 'today' | 'week' | 'month';
 
+type ComparisonItem = {
+  id: string;
+  title: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  location: string;
+  notes: string;
+  linkedReferences: string;
+};
+
+type ModifiedFieldDiff = {
+  fieldLabel: string;
+  valueA: string;
+  valueB: string;
+};
+
+type ModifiedItemDiff = {
+  id: string;
+  itemA: ComparisonItem;
+  itemB: ComparisonItem;
+  fieldDiffs: ModifiedFieldDiff[];
+};
+
+type DeepComparisonResult = {
+  added: ComparisonItem[];
+  removed: ComparisonItem[];
+  modified: ModifiedItemDiff[];
+  unchanged: ComparisonItem[];
+};
+
 const groupStopsByDay = (stops: ReturnType<typeof useTripStore>['sortedStops']) => {
   const grouped = new Map<number, typeof stops>();
   for (const stop of stops) {
@@ -37,6 +68,128 @@ const isInSelectedTimeRange = (dateValue: string, range: SnapshotTimeFilter): bo
   const monthAgo = new Date(now);
   monthAgo.setMonth(now.getMonth() - 1);
   return target >= monthAgo;
+};
+
+const normalizeText = (value: unknown, fallback = 'Not provided'): string => {
+  if (typeof value === 'string' && value.trim().length > 0) {
+    return value.trim();
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return String(value);
+  }
+  return fallback;
+};
+
+const getLinkedReferenceSummary = (stop: Record<string, unknown>): string => {
+  const linkedValues: string[] = [];
+  const candidates: unknown[] = [
+    stop.linkedReferences,
+    stop.linkedReferenceIds,
+    stop.linkedDocs,
+    stop.linkedDocuments,
+    stop.vaultReferences,
+    stop.linkedVault,
+  ];
+
+  for (const candidate of candidates) {
+    if (Array.isArray(candidate)) {
+      if (candidate.length === 0) {
+        continue;
+      }
+      linkedValues.push(candidate.map((entry) => normalizeText(entry)).join(', '));
+      continue;
+    }
+    if (candidate && typeof candidate === 'object') {
+      const keys = Object.keys(candidate);
+      if (keys.length > 0) {
+        linkedValues.push(keys.join(', '));
+      }
+    }
+  }
+
+  if (linkedValues.length === 0) {
+    return 'Not provided';
+  }
+  return linkedValues.join(' | ');
+};
+
+const toComparisonItem = (stop: Record<string, unknown>): ComparisonItem => {
+  const dayValue = typeof stop.day === 'number' ? `Day ${stop.day}` : 'Not provided';
+  return {
+    id: normalizeText(stop.id, crypto.randomUUID()),
+    title: normalizeText(stop.title),
+    date: normalizeText(stop.date, dayValue),
+    startTime: normalizeText(stop.startTime),
+    endTime: normalizeText(stop.endTime),
+    location: normalizeText(stop.location),
+    notes: normalizeText(stop.notes, normalizeText(stop.description)),
+    linkedReferences: getLinkedReferenceSummary(stop),
+  };
+};
+
+const compareField = (fieldLabel: string, valueA: string, valueB: string): ModifiedFieldDiff | null => {
+  if (valueA === valueB) {
+    return null;
+  }
+  return { fieldLabel, valueA, valueB };
+};
+
+const buildDeepComparison = (snapshotA: BackupSnapshot, snapshotB: BackupSnapshot): DeepComparisonResult => {
+  const itemsA = new Map(snapshotA.trip.stops.map((stop) => {
+    const item = toComparisonItem(stop as unknown as Record<string, unknown>);
+    return [item.id, item];
+  }));
+  const itemsB = new Map(snapshotB.trip.stops.map((stop) => {
+    const item = toComparisonItem(stop as unknown as Record<string, unknown>);
+    return [item.id, item];
+  }));
+
+  const allIds = Array.from(new Set([...itemsA.keys(), ...itemsB.keys()]));
+  const added: ComparisonItem[] = [];
+  const removed: ComparisonItem[] = [];
+  const modified: ModifiedItemDiff[] = [];
+  const unchanged: ComparisonItem[] = [];
+
+  for (const id of allIds) {
+    const itemA = itemsA.get(id);
+    const itemB = itemsB.get(id);
+
+    if (!itemA && itemB) {
+      added.push(itemB);
+      continue;
+    }
+    if (itemA && !itemB) {
+      removed.push(itemA);
+      continue;
+    }
+    if (!itemA || !itemB) {
+      continue;
+    }
+
+    const fieldDiffs = [
+      compareField('Title', itemA.title, itemB.title),
+      compareField('Date', itemA.date, itemB.date),
+      compareField('Start time', itemA.startTime, itemB.startTime),
+      compareField('End time', itemA.endTime, itemB.endTime),
+      compareField('Location', itemA.location, itemB.location),
+      compareField('Notes / description', itemA.notes, itemB.notes),
+      compareField('Linked vault/document references', itemA.linkedReferences, itemB.linkedReferences),
+    ].filter((diff): diff is ModifiedFieldDiff => diff !== null);
+
+    if (fieldDiffs.length === 0) {
+      unchanged.push(itemB);
+      continue;
+    }
+
+    modified.push({
+      id,
+      itemA,
+      itemB,
+      fieldDiffs,
+    });
+  }
+
+  return { added, removed, modified, unchanged };
 };
 
 export function TripWorkspace() {
@@ -74,7 +227,13 @@ export function TripWorkspace() {
   const [snapshotApplicationVersionFilter, setSnapshotApplicationVersionFilter] = useState<string>('all');
   const [snapshotTimeFilter, setSnapshotTimeFilter] = useState<SnapshotTimeFilter>('all');
   const [comparisonSnapshotIds, setComparisonSnapshotIds] = useState<string[]>([]);
+  const [modifiedSectionCollapsed, setModifiedSectionCollapsed] = useState(false);
+  const [expandedModifiedIds, setExpandedModifiedIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
+  const addedSectionRef = useRef<HTMLDivElement>(null);
+  const removedSectionRef = useRef<HTMLDivElement>(null);
+  const modifiedSectionRef = useRef<HTMLDivElement>(null);
+  const unchangedSectionRef = useRef<HTMLDivElement>(null);
   const matchedIds = new Set(searchStops(searchQuery));
   const days = groupStopsByDay(sortedStops);
   const snapshotPreviewDate = useMemo(
@@ -148,6 +307,10 @@ export function TripWorkspace() {
   );
   const comparisonLeft = comparisonSnapshots[0] ?? null;
   const comparisonRight = comparisonSnapshots[1] ?? null;
+  const deepComparison = useMemo(
+    () => (comparisonLeft && comparisonRight ? buildDeepComparison(comparisonLeft, comparisonRight) : null),
+    [comparisonLeft, comparisonRight],
+  );
   const getComparisonLabel = (snapshotId: string): 'A' | 'B' | null => {
     const index = comparisonSnapshotIds.findIndex((id) => id === snapshotId);
     if (index === 0) {
@@ -297,6 +460,26 @@ export function TripWorkspace() {
     restoreSnapshot(snapshot.id);
     setFeedback({ kind: 'success', message: `Snapshot ${label} restored successfully.` });
     setComparisonSnapshotIds([]);
+  };
+
+  const handleJumpToSection = (section: 'added' | 'removed' | 'modified' | 'unchanged') => {
+    const target =
+      section === 'added'
+        ? addedSectionRef.current
+        : section === 'removed'
+          ? removedSectionRef.current
+          : section === 'modified'
+            ? modifiedSectionRef.current
+            : unchangedSectionRef.current;
+    target?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const toggleModifiedItemExpansion = (itemId: string) => {
+    setExpandedModifiedIds((currentExpanded) =>
+      currentExpanded.includes(itemId)
+        ? currentExpanded.filter((currentId) => currentId !== itemId)
+        : [...currentExpanded, itemId],
+    );
   };
 
   return (
@@ -671,6 +854,147 @@ export function TripWorkspace() {
                   {comparisonLeft.linkedRecordCount === comparisonRight.linkedRecordCount ? 'same' : 'different'}
                 </li>
               </ul>
+
+              {deepComparison ? (
+                <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                  <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Deep itinerary comparison (read-only)</p>
+                  <div className="mt-3 grid gap-2 text-xs text-slate-300 md:grid-cols-3">
+                    <p>Total added: {deepComparison.added.length}</p>
+                    <p>Total removed: {deepComparison.removed.length}</p>
+                    <p>Total modified: {deepComparison.modified.length}</p>
+                    <p>Total unchanged: {deepComparison.unchanged.length}</p>
+                    <p>Total items in Snapshot A: {comparisonLeft.trip.stops.length}</p>
+                    <p>Total items in Snapshot B: {comparisonRight.trip.stops.length}</p>
+                  </div>
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToSection('added')}
+                      className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                    >
+                      Jump to Added
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToSection('removed')}
+                      className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
+                    >
+                      Jump to Removed
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToSection('modified')}
+                      className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+                    >
+                      Jump to Modified
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleJumpToSection('unchanged')}
+                      className="rounded-full border border-slate-300/40 px-3 py-1 text-xs text-slate-100"
+                    >
+                      Jump to Unchanged
+                    </button>
+                  </div>
+
+                  <div ref={addedSectionRef} className="mt-4">
+                    <p className="text-xs uppercase tracking-[0.25em] text-emerald-300">Added ({deepComparison.added.length})</p>
+                    {deepComparison.added.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-400">No added items.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-xs text-slate-200">
+                        {deepComparison.added.map((item) => (
+                          <li key={item.id} className="rounded-lg border border-emerald-300/30 p-2">
+                            <p>{item.title}</p>
+                            <p className="text-slate-400">{item.date} • {item.location}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div ref={removedSectionRef} className="mt-4">
+                    <p className="text-xs uppercase tracking-[0.25em] text-rose-300">Removed ({deepComparison.removed.length})</p>
+                    {deepComparison.removed.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-400">No removed items.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-xs text-slate-200">
+                        {deepComparison.removed.map((item) => (
+                          <li key={item.id} className="rounded-lg border border-rose-300/30 p-2">
+                            <p>{item.title}</p>
+                            <p className="text-slate-400">{item.date} • {item.location}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div ref={modifiedSectionRef} className="mt-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-xs uppercase tracking-[0.25em] text-amber-300">Modified ({deepComparison.modified.length})</p>
+                      <button
+                        type="button"
+                        onClick={() => setModifiedSectionCollapsed((currentValue) => !currentValue)}
+                        className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+                      >
+                        {modifiedSectionCollapsed ? 'Expand modified section' : 'Collapse modified section'}
+                      </button>
+                    </div>
+                    {modifiedSectionCollapsed ? (
+                      <p className="mt-2 text-xs text-slate-400">Modified section is collapsed.</p>
+                    ) : deepComparison.modified.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-400">No modified items.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-xs text-slate-200">
+                        {deepComparison.modified.map((item) => {
+                          const isExpanded = expandedModifiedIds.includes(item.id);
+                          return (
+                            <li key={item.id} className="rounded-lg border border-amber-300/30 p-2">
+                              <div className="flex flex-wrap items-center justify-between gap-2">
+                                <p>{item.itemB.title}</p>
+                                <button
+                                  type="button"
+                                  onClick={() => toggleModifiedItemExpansion(item.id)}
+                                  className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+                                >
+                                  {isExpanded ? 'Collapse details' : 'Expand details'}
+                                </button>
+                              </div>
+                              {isExpanded ? (
+                                <ul className="mt-2 space-y-1 text-xs text-slate-300">
+                                  {item.fieldDiffs.map((diff) => (
+                                    <li key={`${item.id}-${diff.fieldLabel}`}>
+                                      <span className="text-slate-100">{diff.fieldLabel}:</span> A="{diff.valueA}" vs B="{diff.valueB}"
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : null}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div ref={unchangedSectionRef} className="mt-4">
+                    <p className="text-xs uppercase tracking-[0.25em] text-slate-300">Unchanged ({deepComparison.unchanged.length})</p>
+                    {deepComparison.unchanged.length === 0 ? (
+                      <p className="mt-2 text-xs text-slate-400">No unchanged items.</p>
+                    ) : (
+                      <ul className="mt-2 space-y-2 text-xs text-slate-200">
+                        {deepComparison.unchanged.map((item) => (
+                          <li key={item.id} className="rounded-lg border border-slate-300/30 p-2">
+                            <p>{item.title}</p>
+                            <p className="text-slate-400">{item.date} • {item.location}</p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
