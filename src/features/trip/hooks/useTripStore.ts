@@ -1,7 +1,8 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { buildItinerarySearchIndex } from '../../itinerary/adapters/search';
 import { createItineraryItem, duplicateItineraryItem, updateItineraryItem } from '../../itinerary/model/itineraryItem';
 import type { CreateItineraryItemInput, UpdateItineraryItemInput } from '../../itinerary/model/types';
+import { loadPersistedTrip, persistTrip } from '../data/persistence';
 import { sampleTrip } from '../data/sampleTrip';
 import { defaultItineraryFilters, type ItineraryFilterState, type Trip } from '../model/trip';
 
@@ -25,7 +26,7 @@ function removeSearchIndex(index: Record<string, string>, id: string): Record<st
 }
 
 export function useTripStore(): UseTripStore {
-  const [trip, setTrip] = useState<Trip>(sampleTrip);
+  const [trip, setTrip] = useState<Trip>(() => loadPersistedTrip(sampleTrip));
   const [filters, setFiltersState] = useState<ItineraryFilterState>(defaultItineraryFilters);
 
   const setFilters = useCallback((updater: (prev: ItineraryFilterState) => ItineraryFilterState) => {
@@ -81,6 +82,10 @@ export function useTripStore(): UseTripStore {
       };
     });
   }, []);
+
+  useEffect(() => {
+    persistTrip(trip);
+  }, [trip]);
 
   return useMemo(
     () => ({
