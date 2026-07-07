@@ -51,6 +51,7 @@ export type BackupSnapshot = {
   itineraryItemCount: number;
   backupVersion: number;
   applicationVersion: string;
+  linkedRecordCount: number | null;
   trip: TripData;
 };
 
@@ -128,6 +129,7 @@ const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
     typeof snapshot.itineraryItemCount === 'number' &&
     typeof snapshot.backupVersion === 'number' &&
     typeof snapshot.applicationVersion === 'string' &&
+    (typeof snapshot.linkedRecordCount === 'number' || snapshot.linkedRecordCount === null || snapshot.linkedRecordCount === undefined) &&
     isTripData(snapshot.trip)
   );
 };
@@ -143,6 +145,7 @@ const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
     }
     return parsed.filter(isBackupSnapshot).slice(0, SNAPSHOT_LIMIT).map((snapshot) => ({
       ...snapshot,
+      linkedRecordCount: typeof snapshot.linkedRecordCount === 'number' ? snapshot.linkedRecordCount : null,
       trip: sanitizeTrip(snapshot.trip),
     }));
   } catch {
@@ -324,7 +327,7 @@ const parseTripBackup = (rawValue: string): TripData => parseTripBackupPreview(r
 
 const tripSignature = (trip: TripData): string => JSON.stringify(sanitizeTrip(trip));
 
-const makeSnapshot = (trip: TripData): BackupSnapshot => {
+const makeSnapshot = (trip: TripData, linkedRecordCount: number | null = null): BackupSnapshot => {
   const sanitizedTrip = sanitizeTrip(trip);
   return {
     id: crypto.randomUUID(),
@@ -333,6 +336,7 @@ const makeSnapshot = (trip: TripData): BackupSnapshot => {
     itineraryItemCount: sanitizedTrip.stops.length,
     backupVersion: BACKUP_VERSION,
     applicationVersion: APPLICATION_VERSION,
+    linkedRecordCount,
     trip: sanitizedTrip,
   };
 };
@@ -365,35 +369,43 @@ export function useTripStore() {
 
   const searchIndex = useMemo(() => buildSearchIndex(history.present), [history.present]);
 
-  const pushSnapshot = (trip: TripData) => {
-    const snapshot = makeSnapshot(trip);
+  const pushSnapshot = (trip: TripData, linkedRecordCount: number | null = null) => {
+    const snapshot = makeSnapshot(trip, linkedRecordCount);
     setSnapshots((currentSnapshots) => [snapshot, ...currentSnapshots].slice(0, SNAPSHOT_LIMIT));
   };
 
-  const updateTrip = (updater: (current: TripData) => TripData, options?: { createSnapshot?: boolean }) => {
+  const updateTrip = (
+    updater: (current: TripData) => TripData,
+    options?: { createSnapshot?: boolean; snapshotLinkedRecordCount?: number | null },
+  ) => {
     const shouldCreateSnapshot = options?.createSnapshot ?? false;
+    const snapshotLinkedRecordCount = options?.snapshotLinkedRecordCount ?? null;
     setHistory((currentHistory) => {
       const nextTrip = sanitizeTrip(updater(currentHistory.present));
       if (tripSignature(nextTrip) === tripSignature(currentHistory.present)) {
         return currentHistory;
       }
       if (shouldCreateSnapshot) {
-        pushSnapshot(nextTrip);
+        pushSnapshot(nextTrip, snapshotLinkedRecordCount);
       }
       return updateHistory(currentHistory, nextTrip);
     });
   };
 
-  const replaceTrip = (trip: TripData, options?: { createSnapshot?: boolean; clearHistory?: boolean }) => {
+  const replaceTrip = (
+    trip: TripData,
+    options?: { createSnapshot?: boolean; clearHistory?: boolean; snapshotLinkedRecordCount?: number | null },
+  ) => {
     const shouldCreateSnapshot = options?.createSnapshot ?? false;
     const shouldClearHistory = options?.clearHistory ?? false;
+    const snapshotLinkedRecordCount = options?.snapshotLinkedRecordCount ?? null;
     setHistory((currentHistory) => {
       const nextTrip = sanitizeTrip(trip);
       if (tripSignature(nextTrip) === tripSignature(currentHistory.present)) {
         return currentHistory;
       }
       if (shouldCreateSnapshot) {
-        pushSnapshot(nextTrip);
+        pushSnapshot(nextTrip, snapshotLinkedRecordCount);
       }
       if (shouldClearHistory) {
         return { past: [], present: nextTrip, future: [] };
@@ -563,8 +575,8 @@ export function useTripStore() {
     });
   };
 
-  const importTrip = (trip: TripData) => {
-    replaceTrip(trip, { createSnapshot: true });
+  const importTrip = (trip: TripData, linkedRecordCount: number | null = null) => {
+    replaceTrip(trip, { createSnapshot: true, snapshotLinkedRecordCount: linkedRecordCount });
   };
 
   const restoreSnapshot = (snapshotId: string) => {
