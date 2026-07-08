@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { useTripStore, type BackupSnapshot, type ImportPreview, type TripData } from '../store/useTripStore';
+import { useTripStore, type BackupSnapshot, type ImportPreview, type SnapshotHistoryImportPreview, type TripData } from '../store/useTripStore';
 
 type Feedback = {
   kind: 'success' | 'error';
@@ -212,9 +212,13 @@ export function TripWorkspace() {
     resetTrip,
     clearLocalData,
     importTrip,
+    toSnapshotHistoryJson,
+    snapshotHistoryFileName,
+    parseSnapshotHistoryBackup,
     snapshots,
     restoreSnapshot,
     deleteSnapshot,
+    importSnapshotHistory,
     updateSnapshotDetails,
     snapshotLabelLimit,
     snapshotNotesLimit,
@@ -236,7 +240,13 @@ export function TripWorkspace() {
   const [editingSnapshotId, setEditingSnapshotId] = useState<string | null>(null);
   const [draftSnapshotLabel, setDraftSnapshotLabel] = useState('');
   const [draftSnapshotNotes, setDraftSnapshotNotes] = useState('');
+  const [pendingSnapshotHistoryImport, setPendingSnapshotHistoryImport] = useState<{
+    preview: SnapshotHistoryImportPreview;
+    snapshots: BackupSnapshot[];
+    fileName: string;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
   const removedSectionRef = useRef<HTMLDivElement>(null);
   const modifiedSectionRef = useRef<HTMLDivElement>(null);
@@ -343,9 +353,26 @@ export function TripWorkspace() {
     setFeedback({ kind: 'success', message: `Backup exported: ${anchor.download}` });
   };
 
+  const handleExportSnapshotHistory = () => {
+    const historyJson = toSnapshotHistoryJson();
+    const blob = new Blob([historyJson], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = snapshotHistoryFileName();
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setFeedback({ kind: 'success', message: `Snapshot history exported: ${anchor.download}` });
+  };
+
   const handleImportClick = () => {
     setPendingImport(null);
     inputRef.current?.click();
+  };
+
+  const handleImportSnapshotHistoryClick = () => {
+    setPendingSnapshotHistoryImport(null);
+    snapshotHistoryInputRef.current?.click();
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -367,6 +394,28 @@ export function TripWorkspace() {
     }
   };
 
+  const handleImportSnapshotHistoryFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+
+    try {
+      const content = await file.text();
+      const parsed = parseSnapshotHistoryBackup(content);
+      setPendingSnapshotHistoryImport({
+        ...parsed,
+        fileName: file.name,
+      });
+      setFeedback(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Snapshot history import failed.';
+      setFeedback({ kind: 'error', message });
+      setPendingSnapshotHistoryImport(null);
+    }
+  };
+
   const handleConfirmImport = () => {
     if (!pendingImport) {
       return;
@@ -379,6 +428,20 @@ export function TripWorkspace() {
   const handleCancelImport = () => {
     setPendingImport(null);
     setFeedback({ kind: 'success', message: 'Import cancelled. Current trip unchanged.' });
+  };
+
+  const handleConfirmSnapshotHistoryImport = () => {
+    if (!pendingSnapshotHistoryImport) {
+      return;
+    }
+    importSnapshotHistory(pendingSnapshotHistoryImport.snapshots);
+    setFeedback({ kind: 'success', message: 'Snapshot history imported successfully.' });
+    setPendingSnapshotHistoryImport(null);
+  };
+
+  const handleCancelSnapshotHistoryImport = () => {
+    setPendingSnapshotHistoryImport(null);
+    setFeedback({ kind: 'success', message: 'Snapshot history import cancelled.' });
   };
 
   const handleResetTrip = () => {
@@ -709,8 +772,75 @@ export function TripWorkspace() {
         <section className="mt-6 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Backup history</p>
-            <p className="text-xs text-slate-400">{snapshots.length} / 10 snapshots</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="text-xs text-slate-400">{snapshots.length} / 10 snapshots</p>
+              <button
+                type="button"
+                onClick={handleExportSnapshotHistory}
+                className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+              >
+                Export Snapshot History
+              </button>
+              <button
+                type="button"
+                onClick={handleImportSnapshotHistoryClick}
+                className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+              >
+                Import Snapshot History
+              </button>
+            </div>
           </div>
+          <input
+            ref={snapshotHistoryInputRef}
+            type="file"
+            accept="application/json"
+            className="hidden"
+            onChange={handleImportSnapshotHistoryFile}
+          />
+
+          {pendingSnapshotHistoryImport ? (
+            <div className="mt-3 rounded-xl border border-sky-300/30 bg-sky-500/10 p-3">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Snapshot history import preview</p>
+              <p className="mt-1 text-xs text-slate-300">File: {pendingSnapshotHistoryImport.fileName}</p>
+              <dl className="mt-2 grid gap-2 text-xs text-slate-200 md:grid-cols-2">
+                <div>
+                  <dt className="text-slate-400">History version</dt>
+                  <dd>{pendingSnapshotHistoryImport.preview.historyVersion}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-400">Application version</dt>
+                  <dd>{pendingSnapshotHistoryImport.preview.applicationVersion}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-400">Exported timestamp</dt>
+                  <dd>{pendingSnapshotHistoryImport.preview.exportedAt}</dd>
+                </div>
+                <div>
+                  <dt className="text-slate-400">Total snapshot count</dt>
+                  <dd>
+                    {pendingSnapshotHistoryImport.preview.totalSnapshotCount} (importing{' '}
+                    {pendingSnapshotHistoryImport.snapshots.length})
+                  </dd>
+                </div>
+              </dl>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleConfirmSnapshotHistoryImport}
+                  className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                >
+                  Confirm import
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCancelSnapshotHistoryImport}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          ) : null}
 
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
             <label className="rounded-xl border border-white/10 px-3 py-2 text-xs">

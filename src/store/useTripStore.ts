@@ -57,11 +57,28 @@ export type BackupSnapshot = {
   trip: TripData;
 };
 
+export type SnapshotHistoryImportPreview = {
+  historyVersion: number;
+  applicationVersion: string;
+  exportedAt: string;
+  totalSnapshotCount: number;
+};
+
+type SnapshotHistoryBackup = {
+  schema: 'travel-buddy-snapshot-history';
+  snapshotHistoryVersion: number;
+  applicationVersion: string;
+  exportedAt: string;
+  totalSnapshotCount: number;
+  snapshots: BackupSnapshot[];
+};
+
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 const HISTORY_LIMIT = 50;
 const SNAPSHOT_LIMIT = 10;
 const BACKUP_VERSION = 2;
+const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 const SNAPSHOT_LABEL_LIMIT = 60;
 const SNAPSHOT_NOTES_LIMIT = 500;
@@ -140,6 +157,20 @@ const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
   );
 };
 
+const normalizeSnapshot = (value: unknown): BackupSnapshot | null => {
+  if (!isBackupSnapshot(value)) {
+    return null;
+  }
+  const snapshot = value as BackupSnapshot;
+  return {
+    ...snapshot,
+    linkedRecordCount: typeof snapshot.linkedRecordCount === 'number' ? snapshot.linkedRecordCount : null,
+    label: typeof snapshot.label === 'string' ? snapshot.label.slice(0, SNAPSHOT_LABEL_LIMIT) : '',
+    notes: typeof snapshot.notes === 'string' ? snapshot.notes.slice(0, SNAPSHOT_NOTES_LIMIT) : '',
+    trip: sanitizeTrip(snapshot.trip),
+  };
+};
+
 const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
   if (!rawValue) {
     return [];
@@ -149,13 +180,7 @@ const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.filter(isBackupSnapshot).slice(0, SNAPSHOT_LIMIT).map((snapshot) => ({
-      ...snapshot,
-      linkedRecordCount: typeof snapshot.linkedRecordCount === 'number' ? snapshot.linkedRecordCount : null,
-      label: typeof snapshot.label === 'string' ? snapshot.label.slice(0, SNAPSHOT_LABEL_LIMIT) : '',
-      notes: typeof snapshot.notes === 'string' ? snapshot.notes.slice(0, SNAPSHOT_NOTES_LIMIT) : '',
-      trip: sanitizeTrip(snapshot.trip),
-    }));
+    return parsed.map(normalizeSnapshot).filter((snapshot): snapshot is BackupSnapshot => snapshot !== null).slice(0, SNAPSHOT_LIMIT);
   } catch {
     return [];
   }
@@ -333,6 +358,56 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
 
 const parseTripBackup = (rawValue: string): TripData => parseTripBackupPreview(rawValue).trip;
 
+const parseSnapshotHistoryBackup = (
+  rawValue: string,
+): { preview: SnapshotHistoryImportPreview; snapshots: BackupSnapshot[] } => {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    throw new Error('Snapshot history file is not valid JSON.');
+  }
+
+  const parsedObject = assertRecord(parsed, 'Snapshot history file must contain an object.');
+  if (parsedObject.schema !== 'travel-buddy-snapshot-history') {
+    throw new Error('Snapshot history schema is unsupported.');
+  }
+
+  const historyVersion = ensureNumber(parsedObject.snapshotHistoryVersion, 'Snapshot history version is missing or invalid.');
+  if (!Number.isInteger(historyVersion)) {
+    throw new Error('Snapshot history version must be an integer.');
+  }
+  if (historyVersion !== SNAPSHOT_HISTORY_VERSION) {
+    throw new Error(`Snapshot history version ${historyVersion} is not supported by this app.`);
+  }
+
+  const applicationVersion = ensureString(parsedObject.applicationVersion, 'Application version is missing from snapshot history.');
+  const exportedAt = ensureString(parsedObject.exportedAt, 'Export timestamp is missing from snapshot history.');
+  const totalSnapshotCount = ensureNumber(parsedObject.totalSnapshotCount, 'Total snapshot count is missing or invalid.');
+  if (!Number.isInteger(totalSnapshotCount) || totalSnapshotCount < 0) {
+    throw new Error('Total snapshot count must be a non-negative integer.');
+  }
+
+  if (!Array.isArray(parsedObject.snapshots)) {
+    throw new Error('Snapshot history payload is missing snapshots array.');
+  }
+
+  const normalizedSnapshots = parsedObject.snapshots
+    .map(normalizeSnapshot)
+    .filter((snapshot): snapshot is BackupSnapshot => snapshot !== null)
+    .slice(0, SNAPSHOT_LIMIT);
+
+  return {
+    preview: {
+      historyVersion,
+      applicationVersion,
+      exportedAt,
+      totalSnapshotCount,
+    },
+    snapshots: normalizedSnapshots,
+  };
+};
+
 const tripSignature = (trip: TripData): string => JSON.stringify(sanitizeTrip(trip));
 
 const makeSnapshot = (trip: TripData, linkedRecordCount: number | null = null): BackupSnapshot => {
@@ -352,6 +427,15 @@ const makeSnapshot = (trip: TripData, linkedRecordCount: number | null = null): 
 };
 
 const formatBackupTimestamp = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}-${hours}${minutes}`;
+};
+
+const formatSnapshotHistoryTimestamp = (date: Date): string => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
@@ -570,6 +654,21 @@ export function useTripStore() {
 
   const backupFileName = (): string => `travel-buddy-${formatBackupTimestamp(new Date())}.json`;
 
+  const toSnapshotHistoryJson = (): string => {
+    const payload: SnapshotHistoryBackup = {
+      schema: 'travel-buddy-snapshot-history',
+      snapshotHistoryVersion: SNAPSHOT_HISTORY_VERSION,
+      applicationVersion: APPLICATION_VERSION,
+      exportedAt: new Date().toISOString(),
+      totalSnapshotCount: snapshots.length,
+      snapshots,
+    };
+    return JSON.stringify(payload, null, 2);
+  };
+
+  const snapshotHistoryFileName = (): string =>
+    `travel-buddy-snapshots-${formatSnapshotHistoryTimestamp(new Date())}.json`;
+
   const resetTrip = () => {
     replaceTrip(cloneTrip(seededTrip), { clearHistory: true, createSnapshot: true });
   };
@@ -616,6 +715,10 @@ export function useTripStore() {
     );
   };
 
+  const importSnapshotHistory = (nextSnapshots: BackupSnapshot[]) => {
+    setSnapshots(nextSnapshots.slice(0, SNAPSHOT_LIMIT));
+  };
+
   return {
     trip: history.present,
     canUndo: history.past.length > 0,
@@ -633,13 +736,17 @@ export function useTripStore() {
     parseTripBackup,
     toBackupJson,
     backupFileName,
+    toSnapshotHistoryJson,
+    snapshotHistoryFileName,
     resetTrip,
     clearLocalData,
     importTrip,
     parseTripBackupPreview,
+    parseSnapshotHistoryBackup,
     snapshots,
     restoreSnapshot,
     deleteSnapshot,
+    importSnapshotHistory,
     updateSnapshotDetails,
     snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
     snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,
