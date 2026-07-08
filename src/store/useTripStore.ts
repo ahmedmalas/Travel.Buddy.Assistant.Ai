@@ -52,6 +52,8 @@ export type BackupSnapshot = {
   backupVersion: number;
   applicationVersion: string;
   linkedRecordCount: number | null;
+  label: string;
+  notes: string;
   trip: TripData;
 };
 
@@ -61,6 +63,8 @@ const HISTORY_LIMIT = 50;
 const SNAPSHOT_LIMIT = 10;
 const BACKUP_VERSION = 2;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
+const SNAPSHOT_LABEL_LIMIT = 60;
+const SNAPSHOT_NOTES_LIMIT = 500;
 
 const seededTrip: TripData = {
   tripName: 'Japan Discovery',
@@ -130,6 +134,8 @@ const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
     typeof snapshot.backupVersion === 'number' &&
     typeof snapshot.applicationVersion === 'string' &&
     (typeof snapshot.linkedRecordCount === 'number' || snapshot.linkedRecordCount === null || snapshot.linkedRecordCount === undefined) &&
+    (typeof snapshot.label === 'string' || snapshot.label === undefined) &&
+    (typeof snapshot.notes === 'string' || snapshot.notes === undefined) &&
     isTripData(snapshot.trip)
   );
 };
@@ -146,6 +152,8 @@ const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
     return parsed.filter(isBackupSnapshot).slice(0, SNAPSHOT_LIMIT).map((snapshot) => ({
       ...snapshot,
       linkedRecordCount: typeof snapshot.linkedRecordCount === 'number' ? snapshot.linkedRecordCount : null,
+      label: typeof snapshot.label === 'string' ? snapshot.label.slice(0, SNAPSHOT_LABEL_LIMIT) : '',
+      notes: typeof snapshot.notes === 'string' ? snapshot.notes.slice(0, SNAPSHOT_NOTES_LIMIT) : '',
       trip: sanitizeTrip(snapshot.trip),
     }));
   } catch {
@@ -337,6 +345,8 @@ const makeSnapshot = (trip: TripData, linkedRecordCount: number | null = null): 
     backupVersion: BACKUP_VERSION,
     applicationVersion: APPLICATION_VERSION,
     linkedRecordCount,
+    label: '',
+    notes: '',
     trip: sanitizedTrip,
   };
 };
@@ -591,6 +601,21 @@ export function useTripStore() {
     setSnapshots((currentSnapshots) => currentSnapshots.filter((snapshot) => snapshot.id !== snapshotId));
   };
 
+  const updateSnapshotDetails = (snapshotId: string, label: string, notes: string) => {
+    setSnapshots((currentSnapshots) =>
+      currentSnapshots.map((snapshot) => {
+        if (snapshot.id !== snapshotId) {
+          return snapshot;
+        }
+        return {
+          ...snapshot,
+          label: label.trim().slice(0, SNAPSHOT_LABEL_LIMIT),
+          notes: notes.trim().slice(0, SNAPSHOT_NOTES_LIMIT),
+        };
+      }),
+    );
+  };
+
   return {
     trip: history.present,
     canUndo: history.past.length > 0,
@@ -615,5 +640,8 @@ export function useTripStore() {
     snapshots,
     restoreSnapshot,
     deleteSnapshot,
+    updateSnapshotDetails,
+    snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
+    snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,
   };
 }

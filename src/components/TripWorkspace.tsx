@@ -215,6 +215,9 @@ export function TripWorkspace() {
     snapshots,
     restoreSnapshot,
     deleteSnapshot,
+    updateSnapshotDetails,
+    snapshotLabelLimit,
+    snapshotNotesLimit,
   } = useTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -230,6 +233,9 @@ export function TripWorkspace() {
   const [pendingComparisonRestore, setPendingComparisonRestore] = useState<{ snapshot: BackupSnapshot; label: 'A' | 'B' } | null>(null);
   const [modifiedSectionCollapsed, setModifiedSectionCollapsed] = useState(false);
   const [expandedModifiedIds, setExpandedModifiedIds] = useState<string[]>([]);
+  const [editingSnapshotId, setEditingSnapshotId] = useState<string | null>(null);
+  const [draftSnapshotLabel, setDraftSnapshotLabel] = useState('');
+  const [draftSnapshotNotes, setDraftSnapshotNotes] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
   const removedSectionRef = useRef<HTMLDivElement>(null);
@@ -262,6 +268,8 @@ export function TripWorkspace() {
         snapshot.applicationVersion,
         snapshot.createdAt,
         formattedDate,
+        snapshot.label,
+        snapshot.notes,
       ]
         .join(' ')
         .toLowerCase();
@@ -442,6 +450,27 @@ export function TripWorkspace() {
     }
     setComparisonSnapshotIds((currentSelection) => currentSelection.filter((selectedId) => selectedId !== snapshotId));
     setFeedback({ kind: 'success', message: 'Snapshot deleted.' });
+  };
+
+  const handleStartSnapshotEdit = (snapshot: BackupSnapshot) => {
+    setEditingSnapshotId(snapshot.id);
+    setDraftSnapshotLabel(snapshot.label);
+    setDraftSnapshotNotes(snapshot.notes);
+  };
+
+  const handleCancelSnapshotEdit = () => {
+    setEditingSnapshotId(null);
+    setDraftSnapshotLabel('');
+    setDraftSnapshotNotes('');
+  };
+
+  const handleSaveSnapshotEdit = () => {
+    if (!editingSnapshotId) {
+      return;
+    }
+    updateSnapshotDetails(editingSnapshotId, draftSnapshotLabel, draftSnapshotNotes);
+    setFeedback({ kind: 'success', message: 'Snapshot label/notes updated.' });
+    handleCancelSnapshotEdit();
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -781,11 +810,12 @@ export function TripWorkspace() {
                 <li key={snapshot.id} className="rounded-xl border border-white/10 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm text-slate-200">
-                      <p>{snapshot.tripTitle}</p>
+                      <p>{snapshot.label.trim().length > 0 ? snapshot.label : snapshot.tripTitle}</p>
                       <p className="text-xs text-slate-400">
                         {formatSnapshotDate(snapshot.createdAt)} • {snapshot.itineraryItemCount} items • backup v
                         {snapshot.backupVersion} • app v{snapshot.applicationVersion}
                       </p>
+                      {snapshot.notes.trim().length > 0 ? <p className="mt-1 text-xs text-slate-300">{snapshot.notes}</p> : null}
                     </div>
                     <div className="flex gap-2">
                       <button
@@ -804,6 +834,13 @@ export function TripWorkspace() {
                       </button>
                       <button
                         type="button"
+                        onClick={() => handleStartSnapshotEdit(snapshot)}
+                        className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                      >
+                        Edit label/notes
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => handleDeleteSnapshot(snapshot.id)}
                         className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
                       >
@@ -811,6 +848,52 @@ export function TripWorkspace() {
                       </button>
                     </div>
                   </div>
+                  {editingSnapshotId === snapshot.id ? (
+                    <div className="mt-3 rounded-lg border border-white/10 bg-slate-950/40 p-3">
+                      <label className="block text-xs text-slate-300">
+                        Label (optional)
+                        <input
+                          value={draftSnapshotLabel}
+                          maxLength={snapshotLabelLimit}
+                          onChange={(event) => setDraftSnapshotLabel(event.target.value)}
+                          className="mt-1 w-full rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm text-slate-100 outline-none"
+                          placeholder="Important checkpoint"
+                        />
+                        <span className="mt-1 block text-[11px] text-slate-400">
+                          {draftSnapshotLabel.length}/{snapshotLabelLimit}
+                        </span>
+                      </label>
+                      <label className="mt-2 block text-xs text-slate-300">
+                        Notes (optional)
+                        <textarea
+                          value={draftSnapshotNotes}
+                          maxLength={snapshotNotesLimit}
+                          onChange={(event) => setDraftSnapshotNotes(event.target.value)}
+                          className="mt-1 min-h-20 w-full rounded-md border border-white/10 bg-transparent px-2 py-1 text-sm text-slate-100 outline-none"
+                          placeholder="Why this snapshot matters"
+                        />
+                        <span className="mt-1 block text-[11px] text-slate-400">
+                          {draftSnapshotNotes.length}/{snapshotNotesLimit}
+                        </span>
+                      </label>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSaveSnapshotEdit}
+                          className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleCancelSnapshotEdit}
+                          className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </li>
               );
               })}
@@ -823,25 +906,39 @@ export function TripWorkspace() {
               <div className="mt-3 grid gap-4 md:grid-cols-2">
                 <article className="rounded-xl border border-white/10 p-3">
                   <p className="text-sm font-medium text-slate-100">Snapshot A</p>
-                  <p className="mt-1 text-xs text-slate-400">{comparisonLeft.tripTitle}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {comparisonLeft.label.trim().length > 0 ? comparisonLeft.label : comparisonLeft.tripTitle}
+                  </p>
                   <p className="text-xs text-slate-400">{formatSnapshotDate(comparisonLeft.createdAt)}</p>
                   <p className="text-xs text-slate-400">{comparisonLeft.itineraryItemCount} items</p>
                   <p className="text-xs text-slate-400">Backup v{comparisonLeft.backupVersion}</p>
                   <p className="text-xs text-slate-400">App v{comparisonLeft.applicationVersion}</p>
                   <p className="text-xs text-slate-400">Linked records: {comparisonLeft.linkedRecordCount ?? 'Not provided'}</p>
+                  <p className="text-xs text-slate-400">Notes: {comparisonLeft.notes.trim().length > 0 ? comparisonLeft.notes : 'Not provided'}</p>
                 </article>
                 <article className="rounded-xl border border-white/10 p-3">
                   <p className="text-sm font-medium text-slate-100">Snapshot B</p>
-                  <p className="mt-1 text-xs text-slate-400">{comparisonRight.tripTitle}</p>
+                  <p className="mt-1 text-xs text-slate-400">
+                    {comparisonRight.label.trim().length > 0 ? comparisonRight.label : comparisonRight.tripTitle}
+                  </p>
                   <p className="text-xs text-slate-400">{formatSnapshotDate(comparisonRight.createdAt)}</p>
                   <p className="text-xs text-slate-400">{comparisonRight.itineraryItemCount} items</p>
                   <p className="text-xs text-slate-400">Backup v{comparisonRight.backupVersion}</p>
                   <p className="text-xs text-slate-400">App v{comparisonRight.applicationVersion}</p>
                   <p className="text-xs text-slate-400">Linked records: {comparisonRight.linkedRecordCount ?? 'Not provided'}</p>
+                  <p className="text-xs text-slate-400">Notes: {comparisonRight.notes.trim().length > 0 ? comparisonRight.notes : 'Not provided'}</p>
                 </article>
               </div>
               <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-slate-300">
                 <li>Trip title: {comparisonLeft.tripTitle === comparisonRight.tripTitle ? 'same' : 'different'}</li>
+                <li>
+                  Snapshot label:{' '}
+                  {comparisonLeft.label.trim() === comparisonRight.label.trim() ? 'same' : 'different'}
+                </li>
+                <li>
+                  Snapshot notes:{' '}
+                  {comparisonLeft.notes.trim() === comparisonRight.notes.trim() ? 'same' : 'different'}
+                </li>
                 <li>Created date: {comparisonLeft.createdAt === comparisonRight.createdAt ? 'same' : 'different'}</li>
                 <li>
                   Itinerary item count:{' '}
@@ -1053,10 +1150,15 @@ export function TripWorkspace() {
           {pendingSnapshotRestore ? (
             <div className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-4">
               <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">Snapshot preview</p>
-              <p className="mt-2 text-sm text-slate-200">{pendingSnapshotRestore.tripTitle}</p>
+              <p className="mt-2 text-sm text-slate-200">
+                {pendingSnapshotRestore.label.trim().length > 0 ? pendingSnapshotRestore.label : pendingSnapshotRestore.tripTitle}
+              </p>
               <p className="text-xs text-slate-400">
                 {snapshotPreviewDate} • {pendingSnapshotRestore.itineraryItemCount} items • backup v
                 {pendingSnapshotRestore.backupVersion} • app v{pendingSnapshotRestore.applicationVersion}
+              </p>
+              <p className="mt-1 text-xs text-slate-400">
+                Notes: {pendingSnapshotRestore.notes.trim().length > 0 ? pendingSnapshotRestore.notes : 'Not provided'}
               </p>
               <div className="mt-3 flex gap-2">
                 <button
