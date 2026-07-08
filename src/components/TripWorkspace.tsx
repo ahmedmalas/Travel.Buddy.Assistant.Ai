@@ -227,6 +227,7 @@ export function TripWorkspace() {
   const [snapshotApplicationVersionFilter, setSnapshotApplicationVersionFilter] = useState<string>('all');
   const [snapshotTimeFilter, setSnapshotTimeFilter] = useState<SnapshotTimeFilter>('all');
   const [comparisonSnapshotIds, setComparisonSnapshotIds] = useState<string[]>([]);
+  const [pendingComparisonRestore, setPendingComparisonRestore] = useState<{ snapshot: BackupSnapshot; label: 'A' | 'B' } | null>(null);
   const [modifiedSectionCollapsed, setModifiedSectionCollapsed] = useState(false);
   const [expandedModifiedIds, setExpandedModifiedIds] = useState<string[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -453,13 +454,17 @@ export function TripWorkspace() {
   };
 
   const handleRestoreFromComparison = (snapshot: BackupSnapshot, label: 'A' | 'B') => {
-    const confirmed = window.confirm(`Restore Snapshot ${label} (${snapshot.tripTitle})?`);
-    if (!confirmed) {
+    setPendingComparisonRestore({ snapshot, label });
+  };
+
+  const handleConfirmComparisonRestore = () => {
+    if (!pendingComparisonRestore) {
       return;
     }
-    restoreSnapshot(snapshot.id);
-    setFeedback({ kind: 'success', message: `Snapshot ${label} restored successfully.` });
+    restoreSnapshot(pendingComparisonRestore.snapshot.id);
+    setFeedback({ kind: 'success', message: `Snapshot ${pendingComparisonRestore.label} restored successfully.` });
     setComparisonSnapshotIds([]);
+    setPendingComparisonRestore(null);
   };
 
   const handleJumpToSection = (section: 'added' | 'removed' | 'modified' | 'unchanged') => {
@@ -1018,6 +1023,30 @@ export function TripWorkspace() {
                   Cancel
                 </button>
               </div>
+
+              {pendingComparisonRestore ? (
+                <div className="mt-4 rounded-xl border border-emerald-300/30 bg-emerald-400/10 p-3">
+                  <p className="text-xs text-slate-200">
+                    Restore Snapshot {pendingComparisonRestore.label} ({pendingComparisonRestore.snapshot.tripTitle})?
+                  </p>
+                  <div className="mt-2 flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleConfirmComparisonRestore}
+                      className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                    >
+                      Confirm restore
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPendingComparisonRestore(null)}
+                      className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
