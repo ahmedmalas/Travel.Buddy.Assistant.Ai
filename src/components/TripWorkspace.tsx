@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   useTripStore,
   type BackupSnapshot,
+  type IntegrityHistoryImportPreview,
   type ImportPreview,
   type SnapshotCleanupMode,
   type SnapshotHistoryImportPreview,
@@ -259,11 +260,22 @@ export function TripWorkspace() {
     buildCorruptedRawPayloadExport,
     corruptedRawPayloadFileName,
     integrityAuditReport,
+    integrityAuditRuns,
+    selectedIntegrityBaselineRunId,
+    latestVsBaselineChangeSummary,
     runIntegrityAudit,
     applyIntegrityRepairs,
     clearIntegrityAudit,
     toIntegrityAuditJson,
     integrityAuditFileName,
+    toIntegrityHistoryJson,
+    integrityHistoryFileName,
+    parseIntegrityHistoryBackup,
+    importIntegrityHistory,
+    setIntegrityBaselineRun,
+    clearIntegrityBaselineRun,
+    deleteIntegrityRun,
+    clearIntegrityHistory,
     storageHealth,
     storageKeys,
   } = useTripStore();
@@ -294,8 +306,16 @@ export function TripWorkspace() {
   const [pendingRecoveryAction, setPendingRecoveryAction] = useState<'active-trip' | 'snapshot-history' | null>(null);
   const [selectedRepairIssueIds, setSelectedRepairIssueIds] = useState<string[]>([]);
   const [pendingRepairConfirmation, setPendingRepairConfirmation] = useState(false);
+  const [pendingAuditHistoryImport, setPendingAuditHistoryImport] = useState<{
+    preview: IntegrityHistoryImportPreview;
+    runs: ReturnType<typeof useTripStore>['integrityAuditRuns'];
+    baselineRunId: string | null;
+    fileName: string;
+  } | null>(null);
+  const [pendingClearAuditHistory, setPendingClearAuditHistory] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
+  const auditHistoryInputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
   const removedSectionRef = useRef<HTMLDivElement>(null);
   const modifiedSectionRef = useRef<HTMLDivElement>(null);
@@ -735,6 +755,68 @@ export function TripWorkspace() {
     setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
   };
 
+  const handleExportIntegrityHistory = () => {
+    try {
+      const historyJson = toIntegrityHistoryJson();
+      const fileName = integrityHistoryFileName();
+      exportJsonFile(historyJson, fileName);
+      setFeedback({ kind: 'success', message: `Integrity history exported: ${fileName}` });
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Integrity history export failed.',
+      });
+    }
+  };
+
+  const handleImportIntegrityHistoryClick = () => {
+    auditHistoryInputRef.current?.click();
+  };
+
+  const handleImportIntegrityHistoryFile = async (event: ChangeEvent<HTMLInputElement>) => {
+    const [file] = Array.from(event.target.files ?? []);
+    event.target.value = '';
+    if (!file) {
+      return;
+    }
+    try {
+      const rawValue = await file.text();
+      const parsed = parseIntegrityHistoryBackup(rawValue);
+      setPendingAuditHistoryImport({
+        preview: parsed.preview,
+        runs: parsed.runs,
+        baselineRunId: parsed.baselineRunId,
+        fileName: file.name,
+      });
+      setFeedback({
+        kind: 'success',
+        message: `Integrity history preview ready (${parsed.preview.importedRunCount} run${
+          parsed.preview.importedRunCount === 1 ? '' : 's'
+        }).`,
+      });
+    } catch (error) {
+      setPendingAuditHistoryImport(null);
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Integrity history import parse failed.',
+      });
+    }
+  };
+
+  const handleConfirmImportIntegrityHistory = () => {
+    if (!pendingAuditHistoryImport) {
+      return;
+    }
+    importIntegrityHistory(pendingAuditHistoryImport.runs, pendingAuditHistoryImport.baselineRunId);
+    setPendingAuditHistoryImport(null);
+    setFeedback({ kind: 'success', message: 'Integrity history imported successfully.' });
+  };
+
+  const handleDeleteIntegrityRun = (runId: string) => {
+    deleteIntegrityRun(runId);
+    setFeedback({ kind: 'success', message: 'Audit run deleted.' });
+  };
+
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
     setComparisonSnapshotIds((currentSelection) => {
       if (currentSelection.includes(snapshotId)) {
@@ -816,6 +898,13 @@ export function TripWorkspace() {
               Clear local data
             </button>
             <input ref={inputRef} type="file" accept="application/json" className="hidden" onChange={handleImportFile} />
+            <input
+              ref={auditHistoryInputRef}
+              type="file"
+              accept="application/json"
+              className="hidden"
+              onChange={handleImportIntegrityHistoryFile}
+            />
           </div>
         </div>
 
@@ -1512,6 +1601,204 @@ export function TripWorkspace() {
             ) : (
               <p className="mt-3 text-xs text-slate-400">No audit has been run yet.</p>
             )}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Audit History</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleExportIntegrityHistory}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Export Audit History
+                </button>
+                <button
+                  type="button"
+                  onClick={handleImportIntegrityHistoryClick}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Import Audit History
+                </button>
+                <button
+                  type="button"
+                  onClick={clearIntegrityBaselineRun}
+                  disabled={!selectedIntegrityBaselineRunId}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Clear Baseline
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPendingClearAuditHistory(true)}
+                  disabled={integrityAuditRuns.length === 0}
+                  className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Clear Audit History
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 text-xs text-slate-300">
+              <p>Total runs retained: {integrityAuditRuns.length} / 20</p>
+              <p>
+                Selected baseline:{' '}
+                {selectedIntegrityBaselineRunId ? `${selectedIntegrityBaselineRunId.slice(0, 8)}...` : 'None'}
+              </p>
+            </div>
+
+            {latestVsBaselineChangeSummary ? (
+              <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+                <p className="font-medium text-slate-100">
+                  Latest vs baseline result: {latestVsBaselineChangeSummary.result}
+                </p>
+                <div className="mt-2 grid gap-1 md:grid-cols-2">
+                  <p>Total issue delta: {latestVsBaselineChangeSummary.totalIssueDelta}</p>
+                  <p>Warning delta: {latestVsBaselineChangeSummary.warningDelta}</p>
+                  <p>Repairable-error delta: {latestVsBaselineChangeSummary.repairableErrorDelta}</p>
+                  <p>Blocking-error delta: {latestVsBaselineChangeSummary.blockingErrorDelta}</p>
+                  <p>Active-trip issue delta: {latestVsBaselineChangeSummary.activeTripIssueDelta}</p>
+                  <p>Snapshot-history issue delta: {latestVsBaselineChangeSummary.snapshotHistoryIssueDelta}</p>
+                </div>
+                <div className="mt-2 grid gap-2 md:grid-cols-3">
+                  <div>
+                    <p className="text-slate-400">Newly introduced</p>
+                    <p className="mt-1 max-h-20 overflow-auto break-all text-[11px]">
+                      {latestVsBaselineChangeSummary.newlyIntroducedFingerprints.join(', ') || 'None'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Resolved</p>
+                    <p className="mt-1 max-h-20 overflow-auto break-all text-[11px]">
+                      {latestVsBaselineChangeSummary.resolvedFingerprints.join(', ') || 'None'}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-400">Unchanged</p>
+                    <p className="mt-1 max-h-20 overflow-auto break-all text-[11px]">
+                      {latestVsBaselineChangeSummary.unchangedFingerprints.join(', ') || 'None'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <p className="mt-3 text-xs text-slate-400">Set a baseline to enable latest-vs-baseline comparison.</p>
+            )}
+
+            <div className="mt-3 space-y-2">
+              {integrityAuditRuns.length === 0 ? (
+                <p className="text-xs text-slate-400">No integrity history runs recorded yet.</p>
+              ) : (
+                integrityAuditRuns.map((run, index) => (
+                  <article key={run.id} className="rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-medium text-slate-100">
+                          Run #{integrityAuditRuns.length - index} • {formatSnapshotDate(run.generatedAt)}
+                        </p>
+                        <p className="text-slate-400">
+                          Type: {run.runType} • Duration: {run.durationMs} ms • Total: {run.totalIssueCount}
+                        </p>
+                        <p className="text-slate-400">
+                          W:{run.warningCount} • R:{run.repairableErrorCount} • B:{run.blockingErrorCount} •
+                          Active:{run.activeTripIssueCount} • Snapshot:{run.snapshotHistoryIssueCount}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {selectedIntegrityBaselineRunId === run.id ? (
+                          <span className="rounded-full border border-emerald-300/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] text-emerald-200">
+                            Baseline
+                          </span>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={() => setIntegrityBaselineRun(run.id)}
+                          className="rounded-full border border-white/20 px-2 py-1 text-[11px] text-slate-100"
+                        >
+                          Set as Baseline
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteIntegrityRun(run.id)}
+                          className="rounded-full border border-rose-300/40 px-2 py-1 text-[11px] text-rose-100"
+                        >
+                          Delete Run
+                        </button>
+                      </div>
+                    </div>
+                  </article>
+                ))
+              )}
+            </div>
+
+            {pendingAuditHistoryImport ? (
+              <div className="mt-3 rounded-lg border border-sky-300/30 bg-sky-500/10 p-3 text-xs text-slate-200">
+                <p className="font-medium text-sky-200">Audit history import preview</p>
+                <p className="mt-1 text-slate-300">File: {pendingAuditHistoryImport.fileName}</p>
+                <div className="mt-2 grid gap-1 md:grid-cols-2">
+                  <p>History version: {pendingAuditHistoryImport.preview.historyVersion}</p>
+                  <p>Exported at: {pendingAuditHistoryImport.preview.exportedAt}</p>
+                  <p>Total runs in file: {pendingAuditHistoryImport.preview.totalRunCount}</p>
+                  <p>Runs to import: {pendingAuditHistoryImport.preview.importedRunCount}</p>
+                  <p>
+                    Baseline in import:{' '}
+                    {pendingAuditHistoryImport.preview.baselineRunId
+                      ? `${pendingAuditHistoryImport.preview.baselineRunId.slice(0, 8)}...`
+                      : 'None'}
+                  </p>
+                </div>
+                <p className="mt-2 text-slate-300">
+                  Import replaces audit history metadata only. Active trip and snapshot history remain unchanged.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConfirmImportIntegrityHistory}
+                    className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                  >
+                    Confirm import
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingAuditHistoryImport(null)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {pendingClearAuditHistory ? (
+              <div className="mt-3 rounded-lg border border-rose-300/30 bg-rose-500/10 p-3 text-xs text-rose-200">
+                <p className="font-medium">Clear all retained audit history?</p>
+                <p className="mt-1 text-rose-100">
+                  This clears audit-history metadata only. Active trip, snapshots, backups, diagnostics, and recovery
+                  data remain unchanged.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      clearIntegrityHistory();
+                      setPendingClearAuditHistory(false);
+                      setFeedback({ kind: 'success', message: 'Audit history cleared.' });
+                    }}
+                    className="rounded-full border border-rose-300/50 px-3 py-1 text-xs text-rose-100"
+                  >
+                    Confirm clear
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingClearAuditHistory(false)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">

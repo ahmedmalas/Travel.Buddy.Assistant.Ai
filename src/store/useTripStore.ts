@@ -146,6 +146,50 @@ export type IntegrityAuditReport = {
   issues: IntegrityIssue[];
 };
 
+export type IntegrityAuditRunType = 'manual-audit' | 'before-repair' | 'after-repair';
+
+export type IntegrityAuditRun = {
+  id: string;
+  generatedAt: string;
+  applicationVersion: string;
+  backupVersion: number;
+  snapshotHistoryVersion: number;
+  totalIssueCount: number;
+  warningCount: number;
+  repairableErrorCount: number;
+  blockingErrorCount: number;
+  repairableIssueCount: number;
+  unresolvedIssueCount: number;
+  activeTripIssueCount: number;
+  snapshotHistoryIssueCount: number;
+  durationMs: number;
+  issueFingerprints: string[];
+  runType: IntegrityAuditRunType;
+};
+
+export type IntegrityHistoryChangeSummary = {
+  baselineRunId: string;
+  latestRunId: string;
+  totalIssueDelta: number;
+  warningDelta: number;
+  repairableErrorDelta: number;
+  blockingErrorDelta: number;
+  activeTripIssueDelta: number;
+  snapshotHistoryIssueDelta: number;
+  newlyIntroducedFingerprints: string[];
+  resolvedFingerprints: string[];
+  unchangedFingerprints: string[];
+  result: 'Improved' | 'Unchanged' | 'Regressed';
+};
+
+export type IntegrityHistoryImportPreview = {
+  historyVersion: number;
+  exportedAt: string;
+  totalRunCount: number;
+  importedRunCount: number;
+  baselineRunId: string | null;
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -153,6 +197,14 @@ type SnapshotHistoryBackup = {
   exportedAt: string;
   totalSnapshotCount: number;
   snapshots: BackupSnapshot[];
+};
+
+type IntegrityHistoryBackup = {
+  schema: 'travel-buddy-integrity-history';
+  integrityHistoryVersion: number;
+  exportedAt: string;
+  selectedBaselineRunId: string | null;
+  runs: IntegrityAuditRun[];
 };
 
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
@@ -165,6 +217,10 @@ const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packag
 const SNAPSHOT_LABEL_LIMIT = 60;
 const SNAPSHOT_NOTES_LIMIT = 500;
 const INTEGRITY_REPAIR_BACKUP_STORAGE_KEY = 'travel-buddy:integrity-repair-backups:v1';
+const INTEGRITY_HISTORY_STORAGE_KEY = 'travel-buddy:integrity-history:v1';
+const INTEGRITY_HISTORY_BASELINE_STORAGE_KEY = 'travel-buddy:integrity-history-baseline:v1';
+const INTEGRITY_HISTORY_VERSION = 1;
+const INTEGRITY_HISTORY_LIMIT = 20;
 
 const bytesInString = (value: string): number => {
   if (typeof TextEncoder !== 'undefined') {
@@ -717,6 +773,99 @@ const safeReadStorageValue = (key: string): string | null => {
   }
 };
 
+const buildIntegrityIssueFingerprint = (issue: IntegrityIssue): string =>
+  `${issue.target}|${issue.issueType}|${issue.affectedRecord}|${issue.severity}`;
+
+const trimIntegrityHistoryRuns = (runs: IntegrityAuditRun[]): IntegrityAuditRun[] =>
+  runs.slice(0, INTEGRITY_HISTORY_LIMIT);
+
+const sortIntegrityHistoryRuns = (runs: IntegrityAuditRun[]): IntegrityAuditRun[] =>
+  [...runs].sort((a, b) => new Date(b.generatedAt).getTime() - new Date(a.generatedAt).getTime());
+
+const isIntegrityAuditRun = (value: unknown): value is IntegrityAuditRun => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return false;
+  }
+  const run = value as Partial<IntegrityAuditRun>;
+  return (
+    typeof run.id === 'string' &&
+    typeof run.generatedAt === 'string' &&
+    typeof run.applicationVersion === 'string' &&
+    typeof run.backupVersion === 'number' &&
+    typeof run.snapshotHistoryVersion === 'number' &&
+    typeof run.totalIssueCount === 'number' &&
+    typeof run.warningCount === 'number' &&
+    typeof run.repairableErrorCount === 'number' &&
+    typeof run.blockingErrorCount === 'number' &&
+    typeof run.repairableIssueCount === 'number' &&
+    typeof run.unresolvedIssueCount === 'number' &&
+    typeof run.activeTripIssueCount === 'number' &&
+    typeof run.snapshotHistoryIssueCount === 'number' &&
+    typeof run.durationMs === 'number' &&
+    Array.isArray(run.issueFingerprints) &&
+    run.issueFingerprints.every((entry) => typeof entry === 'string') &&
+    (run.runType === 'manual-audit' || run.runType === 'before-repair' || run.runType === 'after-repair')
+  );
+};
+
+const parsePersistedIntegrityHistoryRuns = (rawValue: string | null): IntegrityAuditRun[] => {
+  if (!rawValue) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(parsed.filter(isIntegrityAuditRun)));
+  } catch {
+    return [];
+  }
+};
+
+const parsePersistedIntegrityBaselineId = (rawValue: string | null, runs: IntegrityAuditRun[]): string | null => {
+  if (!rawValue) {
+    return null;
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawValue);
+    if (typeof parsed !== 'string') {
+      return null;
+    }
+    return runs.some((run) => run.id === parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+};
+
+const classifyIntegrityHistoryChange = (delta: {
+  totalIssueDelta: number;
+  warningDelta: number;
+  repairableErrorDelta: number;
+  blockingErrorDelta: number;
+}): 'Improved' | 'Unchanged' | 'Regressed' => {
+  if (
+    delta.totalIssueDelta === 0 &&
+    delta.warningDelta === 0 &&
+    delta.repairableErrorDelta === 0 &&
+    delta.blockingErrorDelta === 0
+  ) {
+    return 'Unchanged';
+  }
+  const weighted =
+    delta.blockingErrorDelta * 5 +
+    delta.repairableErrorDelta * 3 +
+    delta.warningDelta * 2 +
+    delta.totalIssueDelta;
+  if (weighted > 0) {
+    return 'Regressed';
+  }
+  if (weighted < 0) {
+    return 'Improved';
+  }
+  return 'Unchanged';
+};
+
 const isIsoDateLike = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const normalizeDateUnambiguous = (value: string): string | null => {
@@ -752,6 +901,13 @@ const timeToMinutes = (value: string): number | null => {
 export function useTripStore() {
   const initialActiveTripStorage = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
   const initialSnapshotStorage = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
+  const initialIntegrityHistoryRuns = parsePersistedIntegrityHistoryRuns(
+    safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY),
+  );
+  const initialIntegrityBaselineRunId = parsePersistedIntegrityBaselineId(
+    safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY),
+    initialIntegrityHistoryRuns,
+  );
   const [history, setHistory] = useState<HistoryState>(() => ({
     past: [],
     present: initialActiveTripStorage.trip,
@@ -776,6 +932,10 @@ export function useTripStore() {
   const [snapshotHistoryPersistenceError, setSnapshotHistoryPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [lastSuccessfulPersistenceAt, setLastSuccessfulPersistenceAt] = useState<string | null>(null);
   const [integrityAuditReport, setIntegrityAuditReport] = useState<IntegrityAuditReport | null>(null);
+  const [integrityAuditRuns, setIntegrityAuditRuns] = useState<IntegrityAuditRun[]>(initialIntegrityHistoryRuns);
+  const [selectedIntegrityBaselineRunId, setSelectedIntegrityBaselineRunId] = useState<string | null>(
+    initialIntegrityBaselineRunId,
+  );
   const integrityRepairOperationsRef = useRef<
     Map<string, (context: { activeTripDraft: Record<string, unknown> | null; snapshotDraft: unknown[] | null }) => void>
   >(new Map());
@@ -846,6 +1006,27 @@ export function useTripStore() {
   useEffect(() => {
     persistSnapshotHistory(snapshots);
   }, [snapshots]);
+  useEffect(() => {
+    window.localStorage.setItem(INTEGRITY_HISTORY_STORAGE_KEY, JSON.stringify(integrityAuditRuns));
+  }, [integrityAuditRuns]);
+  useEffect(() => {
+    if (selectedIntegrityBaselineRunId) {
+      window.localStorage.setItem(
+        INTEGRITY_HISTORY_BASELINE_STORAGE_KEY,
+        JSON.stringify(selectedIntegrityBaselineRunId),
+      );
+      return;
+    }
+    window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+  }, [selectedIntegrityBaselineRunId]);
+  useEffect(() => {
+    if (!selectedIntegrityBaselineRunId) {
+      return;
+    }
+    if (!integrityAuditRuns.some((run) => run.id === selectedIntegrityBaselineRunId)) {
+      setSelectedIntegrityBaselineRunId(null);
+    }
+  }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
 
   const searchIndex = useMemo(() => buildSearchIndex(history.present), [history.present]);
 
@@ -1144,7 +1325,8 @@ export function useTripStore() {
   const retryPersistSnapshotHistory = (): boolean => persistSnapshotHistory(snapshots);
   const retryPersistAll = (): boolean => retryPersistActiveTrip() && retryPersistSnapshotHistory();
 
-  const runIntegrityAudit = (): IntegrityAuditReport => {
+  const runIntegrityAudit = (runType: IntegrityAuditRunType = 'manual-audit'): IntegrityAuditReport => {
+    const auditStartedAt = performance.now();
     const issueList: IntegrityIssue[] = [];
     const repairOperations = new Map<
       string,
@@ -1779,6 +1961,29 @@ export function useTripStore() {
       repairableIssueIds,
       issues: issueList,
     };
+    const activeTripIssueCount = issueList.filter((issue) => issue.target === 'active-trip').length;
+    const snapshotHistoryIssueCount = issueList.filter((issue) => issue.target === 'snapshot-history').length;
+    const runMetadata: IntegrityAuditRun = {
+      id: crypto.randomUUID(),
+      generatedAt: report.generatedAt,
+      applicationVersion: report.applicationVersion,
+      backupVersion: report.backupVersion,
+      snapshotHistoryVersion: report.snapshotHistoryVersion,
+      totalIssueCount: report.issueCount,
+      warningCount: report.warningCount,
+      repairableErrorCount: report.repairableErrorCount,
+      blockingErrorCount: report.blockingErrorCount,
+      repairableIssueCount: report.repairableIssueIds.length,
+      unresolvedIssueCount: report.issueCount,
+      activeTripIssueCount,
+      snapshotHistoryIssueCount,
+      durationMs: Math.max(0, Math.round(performance.now() - auditStartedAt)),
+      issueFingerprints: issueList.map(buildIntegrityIssueFingerprint),
+      runType,
+    };
+    setIntegrityAuditRuns((currentRuns) =>
+      trimIntegrityHistoryRuns(sortIntegrityHistoryRuns([runMetadata, ...currentRuns])),
+    );
     setIntegrityAuditReport(report);
     return report;
   };
@@ -1814,6 +2019,164 @@ export function useTripStore() {
       null,
       2,
     );
+  };
+
+  const integrityHistoryFileName = (): string =>
+    `travel-buddy-integrity-history-${formatDiagnosticsTimestamp(new Date())}.json`;
+
+  const latestVsBaselineChangeSummary = useMemo<IntegrityHistoryChangeSummary | null>(() => {
+    if (!selectedIntegrityBaselineRunId || integrityAuditRuns.length === 0) {
+      return null;
+    }
+    const latestRun = integrityAuditRuns[0];
+    const baselineRun = integrityAuditRuns.find((run) => run.id === selectedIntegrityBaselineRunId);
+    if (!baselineRun) {
+      return null;
+    }
+    const latestFingerprints = new Set(latestRun.issueFingerprints);
+    const baselineFingerprints = new Set(baselineRun.issueFingerprints);
+    const newlyIntroducedFingerprints = [...latestFingerprints].filter(
+      (fingerprint) => !baselineFingerprints.has(fingerprint),
+    );
+    const resolvedFingerprints = [...baselineFingerprints].filter(
+      (fingerprint) => !latestFingerprints.has(fingerprint),
+    );
+    const unchangedFingerprints = [...latestFingerprints].filter((fingerprint) =>
+      baselineFingerprints.has(fingerprint),
+    );
+    const totalIssueDelta = latestRun.totalIssueCount - baselineRun.totalIssueCount;
+    const warningDelta = latestRun.warningCount - baselineRun.warningCount;
+    const repairableErrorDelta = latestRun.repairableErrorCount - baselineRun.repairableErrorCount;
+    const blockingErrorDelta = latestRun.blockingErrorCount - baselineRun.blockingErrorCount;
+    const activeTripIssueDelta = latestRun.activeTripIssueCount - baselineRun.activeTripIssueCount;
+    const snapshotHistoryIssueDelta = latestRun.snapshotHistoryIssueCount - baselineRun.snapshotHistoryIssueCount;
+    return {
+      baselineRunId: baselineRun.id,
+      latestRunId: latestRun.id,
+      totalIssueDelta,
+      warningDelta,
+      repairableErrorDelta,
+      blockingErrorDelta,
+      activeTripIssueDelta,
+      snapshotHistoryIssueDelta,
+      newlyIntroducedFingerprints,
+      resolvedFingerprints,
+      unchangedFingerprints,
+      result: classifyIntegrityHistoryChange({
+        totalIssueDelta,
+        warningDelta,
+        repairableErrorDelta,
+        blockingErrorDelta,
+      }),
+    };
+  }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
+
+  const toIntegrityHistoryJson = (): string => {
+    const payload: IntegrityHistoryBackup = {
+      schema: 'travel-buddy-integrity-history',
+      integrityHistoryVersion: INTEGRITY_HISTORY_VERSION,
+      exportedAt: new Date().toISOString(),
+      selectedBaselineRunId: selectedIntegrityBaselineRunId,
+      runs: integrityAuditRuns.map((run) => ({
+        id: run.id,
+        generatedAt: run.generatedAt,
+        applicationVersion: run.applicationVersion,
+        backupVersion: run.backupVersion,
+        snapshotHistoryVersion: run.snapshotHistoryVersion,
+        totalIssueCount: run.totalIssueCount,
+        warningCount: run.warningCount,
+        repairableErrorCount: run.repairableErrorCount,
+        blockingErrorCount: run.blockingErrorCount,
+        repairableIssueCount: run.repairableIssueCount,
+        unresolvedIssueCount: run.unresolvedIssueCount,
+        activeTripIssueCount: run.activeTripIssueCount,
+        snapshotHistoryIssueCount: run.snapshotHistoryIssueCount,
+        durationMs: run.durationMs,
+        issueFingerprints: run.issueFingerprints,
+        runType: run.runType,
+      })),
+    };
+    return JSON.stringify(
+      {
+        ...payload,
+        latestVsBaselineChangeSummary,
+      },
+      null,
+      2,
+    );
+  };
+
+  const parseIntegrityHistoryBackup = (
+    rawValue: string,
+  ): { preview: IntegrityHistoryImportPreview; runs: IntegrityAuditRun[]; baselineRunId: string | null } => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawValue);
+    } catch {
+      throw new Error('Integrity history file is not valid JSON.');
+    }
+    const parsedRecord = assertRecord(parsed, 'Integrity history file must contain an object.');
+    if (parsedRecord.schema !== 'travel-buddy-integrity-history') {
+      throw new Error('Integrity history schema is unsupported.');
+    }
+    const historyVersion = ensureNumber(
+      parsedRecord.integrityHistoryVersion,
+      'Integrity history version is missing or invalid.',
+    );
+    if (!Number.isInteger(historyVersion)) {
+      throw new Error('Integrity history version must be an integer.');
+    }
+    if (historyVersion !== INTEGRITY_HISTORY_VERSION) {
+      throw new Error(`Integrity history version ${historyVersion} is not supported by this app.`);
+    }
+    const exportedAt = ensureString(parsedRecord.exportedAt, 'Integrity history export timestamp is missing.');
+    if (!Array.isArray(parsedRecord.runs)) {
+      throw new Error('Integrity history runs array is missing.');
+    }
+    const runs = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(parsedRecord.runs.filter(isIntegrityAuditRun)));
+    const baselineCandidate =
+      typeof parsedRecord.selectedBaselineRunId === 'string' ? parsedRecord.selectedBaselineRunId : null;
+    const baselineRunId = baselineCandidate && runs.some((run) => run.id === baselineCandidate) ? baselineCandidate : null;
+    return {
+      preview: {
+        historyVersion,
+        exportedAt,
+        totalRunCount: parsedRecord.runs.length,
+        importedRunCount: runs.length,
+        baselineRunId,
+      },
+      runs,
+      baselineRunId,
+    };
+  };
+
+  const importIntegrityHistory = (runs: IntegrityAuditRun[], baselineRunId: string | null) => {
+    const normalizedRuns = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(runs));
+    setIntegrityAuditRuns(normalizedRuns);
+    setSelectedIntegrityBaselineRunId(
+      baselineRunId && normalizedRuns.some((run) => run.id === baselineRunId) ? baselineRunId : null,
+    );
+  };
+
+  const setIntegrityBaselineRun = (runId: string) => {
+    if (!integrityAuditRuns.some((run) => run.id === runId)) {
+      return;
+    }
+    setSelectedIntegrityBaselineRunId(runId);
+  };
+
+  const clearIntegrityBaselineRun = () => {
+    setSelectedIntegrityBaselineRunId(null);
+  };
+
+  const deleteIntegrityRun = (runId: string) => {
+    setIntegrityAuditRuns((currentRuns) => currentRuns.filter((run) => run.id !== runId));
+    setSelectedIntegrityBaselineRunId((currentBaseline) => (currentBaseline === runId ? null : currentBaseline));
+  };
+
+  const clearIntegrityHistory = () => {
+    setIntegrityAuditRuns([]);
+    setSelectedIntegrityBaselineRunId(null);
   };
 
   const appendInternalRepairBackup = (target: StorageTarget, rawValue: string) => {
@@ -1857,6 +2220,7 @@ export function useTripStore() {
     if (selectedIssueIds.length === 0) {
       return { ok: false, message: 'No repairable issues selected.', appliedCount: 0, unresolvedCount: 0 };
     }
+    runIntegrityAudit('before-repair');
 
     const operations = integrityRepairOperationsRef.current;
     const activeRawValue = safeReadStorageValue(LOCAL_STORAGE_KEY);
@@ -1941,7 +2305,7 @@ export function useTripStore() {
     }
 
     setLastSuccessfulPersistenceAt(new Date().toISOString());
-    const nextReport = runIntegrityAudit();
+    const nextReport = runIntegrityAudit('after-repair');
     return {
       ok: true,
       message: `Applied ${appliedCount} repair${appliedCount === 1 ? '' : 's'}.`,
@@ -2187,11 +2551,22 @@ export function useTripStore() {
     buildCorruptedRawPayloadExport,
     corruptedRawPayloadFileName,
     integrityAuditReport,
+    integrityAuditRuns,
+    selectedIntegrityBaselineRunId,
+    latestVsBaselineChangeSummary,
     runIntegrityAudit,
     applyIntegrityRepairs,
     clearIntegrityAudit,
     toIntegrityAuditJson,
     integrityAuditFileName,
+    toIntegrityHistoryJson,
+    integrityHistoryFileName,
+    parseIntegrityHistoryBackup,
+    importIntegrityHistory,
+    setIntegrityBaselineRun,
+    clearIntegrityBaselineRun,
+    deleteIntegrityRun,
+    clearIntegrityHistory,
     storageHealth,
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,
