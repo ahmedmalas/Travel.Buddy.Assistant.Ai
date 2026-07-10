@@ -88,6 +88,37 @@ export type StorageHealthSummary = {
   snapshotHistoryPersistenceError: PersistenceErrorInfo | null;
 };
 
+type StorageParseStatus = 'valid' | 'missing' | 'corrupted';
+type StorageTarget = 'active-trip' | 'snapshot-history';
+
+export type StorageCorruptionState = {
+  target: StorageTarget;
+  parseStatus: 'corrupted';
+  message: string;
+  rawPayloadAvailable: boolean;
+  detectedAt: string;
+};
+
+export type StorageDiagnosticsSummary = {
+  applicationVersion: string;
+  backupVersion: number;
+  snapshotHistoryVersion: number;
+  activeTripStorageKey: string;
+  snapshotHistoryStorageKey: string;
+  activeTripRawPayloadSize: number;
+  snapshotHistoryRawPayloadSize: number;
+  totalEstimatedStoredSize: number;
+  activeTripParseStatus: StorageParseStatus;
+  snapshotHistoryParseStatus: StorageParseStatus;
+  lastSuccessfulPersistenceAt: string | null;
+  latestActiveTripPersistenceError: PersistenceErrorInfo | null;
+  latestSnapshotHistoryPersistenceError: PersistenceErrorInfo | null;
+  totalSnapshotCount: number;
+  pinnedSnapshotCount: number;
+  unpinnedSnapshotCount: number;
+  browserTimestamp: string;
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -124,6 +155,18 @@ const getPersistenceErrorMessage = (error: unknown, target: PersistenceErrorTarg
   }
   return `Failed to save ${targetLabel} to local storage.`;
 };
+
+const createCorruptionState = (
+  target: StorageTarget,
+  message: string,
+  rawPayloadAvailable: boolean,
+): StorageCorruptionState => ({
+  target,
+  parseStatus: 'corrupted',
+  message,
+  rawPayloadAvailable,
+  detectedAt: new Date().toISOString(),
+});
 
 const seededTrip: TripData = {
   tripName: 'Japan Discovery',
@@ -165,19 +208,11 @@ const cloneTrip = (trip: TripData): TripData => ({
   stops: trip.stops.map((stop) => ({ ...stop })),
 });
 
-const parsePersistedTrip = (rawValue: string | null): TripData => {
-  if (!rawValue) {
-    return cloneTrip(seededTrip);
-  }
-  try {
-    const parsed: unknown = JSON.parse(rawValue);
-    if (isTripData(parsed)) {
-      return sanitizeTrip(parsed);
-    }
-  } catch {
-    return cloneTrip(seededTrip);
-  }
-  return cloneTrip(seededTrip);
+type ParsedActiveTripStorage = {
+  trip: TripData;
+  parseStatus: StorageParseStatus;
+  corruption: StorageCorruptionState | null;
+  rawPayloadSize: number;
 };
 
 const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
@@ -245,19 +280,138 @@ const getSnapshotsMatchingCleanup = (snapshots: BackupSnapshot[], mode: Snapshot
   return snapshots.filter((snapshot) => !snapshot.pinned && isSnapshotOlderThanDays(snapshot, dayLimit));
 };
 
-const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
-  if (!rawValue) {
-    return [];
+type ParsedSnapshotStorage = {
+  snapshots: BackupSnapshot[];
+  parseStatus: StorageParseStatus;
+  corruption: StorageCorruptionState | null;
+  rawPayloadSize: number;
+};
+
+const parsePersistedTripStorage = (rawValue: string | null): ParsedActiveTripStorage => {
+  if (rawValue === null) {
+    return {
+      trip: cloneTrip(seededTrip),
+      parseStatus: 'missing',
+      corruption: null,
+      rawPayloadSize: 0,
+    };
   }
+
+  const rawPayloadSize = bytesInString(rawValue);
+  let parsed: unknown;
   try {
-    const parsed: unknown = JSON.parse(rawValue);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-    return applySnapshotRetention(parsed.map(normalizeSnapshot).filter((snapshot): snapshot is BackupSnapshot => snapshot !== null));
+    parsed = JSON.parse(rawValue);
   } catch {
-    return [];
+    return {
+      trip: cloneTrip(seededTrip),
+      parseStatus: 'corrupted',
+      corruption: createCorruptionState('active-trip', 'Active trip storage contains malformed JSON.', true),
+      rawPayloadSize,
+    };
   }
+
+  if (isTripData(parsed)) {
+    return {
+      trip: sanitizeTrip(parsed),
+      parseStatus: 'valid',
+      corruption: null,
+      rawPayloadSize,
+    };
+  }
+
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed) && 'schema' in (parsed as Record<string, unknown>)) {
+    return {
+      trip: cloneTrip(seededTrip),
+      parseStatus: 'corrupted',
+      corruption: createCorruptionState(
+        'active-trip',
+        'Active trip storage has unsupported schema/version for trip-state key.',
+        true,
+      ),
+      rawPayloadSize,
+    };
+  }
+
+  return {
+    trip: cloneTrip(seededTrip),
+    parseStatus: 'corrupted',
+    corruption: createCorruptionState(
+      'active-trip',
+      'Active trip storage is structurally invalid or missing required fields.',
+      true,
+    ),
+    rawPayloadSize,
+  };
+};
+
+const parsePersistedSnapshotStorage = (rawValue: string | null): ParsedSnapshotStorage => {
+  if (rawValue === null) {
+    return {
+      snapshots: [],
+      parseStatus: 'missing',
+      corruption: null,
+      rawPayloadSize: 0,
+    };
+  }
+
+  const rawPayloadSize = bytesInString(rawValue);
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawValue);
+  } catch {
+    return {
+      snapshots: [],
+      parseStatus: 'corrupted',
+      corruption: createCorruptionState('snapshot-history', 'Snapshot history storage contains malformed JSON.', true),
+      rawPayloadSize,
+    };
+  }
+
+  if (!Array.isArray(parsed)) {
+    if (parsed && typeof parsed === 'object' && 'schema' in (parsed as Record<string, unknown>)) {
+      return {
+        snapshots: [],
+        parseStatus: 'corrupted',
+        corruption: createCorruptionState(
+          'snapshot-history',
+          'Snapshot history storage has unsupported schema/version for snapshots key.',
+          true,
+        ),
+        rawPayloadSize,
+      };
+    }
+    return {
+      snapshots: [],
+      parseStatus: 'corrupted',
+      corruption: createCorruptionState(
+        'snapshot-history',
+        'Snapshot history storage is structurally invalid or missing required fields.',
+        true,
+      ),
+      rawPayloadSize,
+    };
+  }
+
+  const normalizedSnapshots = parsed.map(normalizeSnapshot);
+  if (normalizedSnapshots.some((snapshot) => snapshot === null)) {
+    return {
+      snapshots: [],
+      parseStatus: 'corrupted',
+      corruption: createCorruptionState(
+        'snapshot-history',
+        'Snapshot history storage contains unreadable or unsupported snapshot entries.',
+        true,
+      ),
+      rawPayloadSize,
+    };
+  }
+
+  return {
+    snapshots: applySnapshotRetention(normalizedSnapshots as BackupSnapshot[]),
+    parseStatus: 'valid',
+    corruption: null,
+    rawPayloadSize,
+  };
 };
 
 const dedupe = (items: string[]): string[] => Array.from(new Set(items));
@@ -518,24 +672,69 @@ const formatSnapshotHistoryTimestamp = (date: Date): string => {
   return `${year}-${month}-${day}-${hours}${minutes}`;
 };
 
+const formatDiagnosticsTimestamp = (date: Date): string => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}-${hours}${minutes}`;
+};
+
+const safeReadStorageValue = (key: string): string | null => {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+};
+
 export function useTripStore() {
+  const initialActiveTripStorage = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
+  const initialSnapshotStorage = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
   const [history, setHistory] = useState<HistoryState>(() => ({
     past: [],
-    present: parsePersistedTrip(window.localStorage.getItem(LOCAL_STORAGE_KEY)),
+    present: initialActiveTripStorage.trip,
     future: [],
   }));
-  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() =>
-    parsePersistedSnapshots(window.localStorage.getItem(LOCAL_SNAPSHOT_STORAGE_KEY)),
+  const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() => initialSnapshotStorage.snapshots);
+  const [activeTripParseStatus, setActiveTripParseStatus] = useState<StorageParseStatus>(initialActiveTripStorage.parseStatus);
+  const [snapshotHistoryParseStatus, setSnapshotHistoryParseStatus] = useState<StorageParseStatus>(
+    initialSnapshotStorage.parseStatus,
+  );
+  const [activeTripCorruption, setActiveTripCorruption] = useState<StorageCorruptionState | null>(
+    initialActiveTripStorage.corruption,
+  );
+  const [snapshotHistoryCorruption, setSnapshotHistoryCorruption] = useState<StorageCorruptionState | null>(
+    initialSnapshotStorage.corruption,
+  );
+  const [activeTripRawPayloadSize, setActiveTripRawPayloadSize] = useState<number>(initialActiveTripStorage.rawPayloadSize);
+  const [snapshotHistoryRawPayloadSize, setSnapshotHistoryRawPayloadSize] = useState<number>(
+    initialSnapshotStorage.rawPayloadSize,
   );
   const [activeTripPersistenceError, setActiveTripPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [snapshotHistoryPersistenceError, setSnapshotHistoryPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [lastSuccessfulPersistenceAt, setLastSuccessfulPersistenceAt] = useState<string | null>(null);
 
   const persistActiveTrip = (trip: TripData): boolean => {
+    if (activeTripCorruption) {
+      setActiveTripPersistenceError((currentError) =>
+        currentError ??
+        {
+          target: 'active-trip',
+          message: 'Cannot persist active trip while active-trip storage is marked as corrupted. Use Diagnostics & Recovery.',
+          occurredAt: new Date().toISOString(),
+        },
+      );
+      return false;
+    }
+    const serializedTrip = JSON.stringify(trip);
     try {
-      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(trip));
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, serializedTrip);
       setActiveTripPersistenceError(null);
       setLastSuccessfulPersistenceAt(new Date().toISOString());
+      setActiveTripParseStatus('valid');
+      setActiveTripRawPayloadSize(bytesInString(serializedTrip));
       return true;
     } catch (error) {
       setActiveTripPersistenceError({
@@ -548,10 +747,24 @@ export function useTripStore() {
   };
 
   const persistSnapshotHistory = (nextSnapshots: BackupSnapshot[]): boolean => {
+    if (snapshotHistoryCorruption) {
+      setSnapshotHistoryPersistenceError((currentError) =>
+        currentError ??
+        {
+          target: 'snapshot-history',
+          message: 'Cannot persist snapshot history while snapshot storage is marked as corrupted. Use Diagnostics & Recovery.',
+          occurredAt: new Date().toISOString(),
+        },
+      );
+      return false;
+    }
+    const serializedSnapshots = JSON.stringify(nextSnapshots);
     try {
-      window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, JSON.stringify(nextSnapshots));
+      window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, serializedSnapshots);
       setSnapshotHistoryPersistenceError(null);
       setLastSuccessfulPersistenceAt(new Date().toISOString());
+      setSnapshotHistoryParseStatus('valid');
+      setSnapshotHistoryRawPayloadSize(bytesInString(serializedSnapshots));
       return true;
     } catch (error) {
       setSnapshotHistoryPersistenceError({
@@ -785,6 +998,12 @@ export function useTripStore() {
   const clearLocalData = () => {
     window.localStorage.removeItem(LOCAL_STORAGE_KEY);
     window.localStorage.removeItem(LOCAL_SNAPSHOT_STORAGE_KEY);
+    setActiveTripParseStatus('missing');
+    setSnapshotHistoryParseStatus('missing');
+    setActiveTripCorruption(null);
+    setSnapshotHistoryCorruption(null);
+    setActiveTripRawPayloadSize(0);
+    setSnapshotHistoryRawPayloadSize(0);
     setSnapshots([]);
     setHistory({
       past: [],
@@ -861,6 +1080,89 @@ export function useTripStore() {
   const retryPersistSnapshotHistory = (): boolean => persistSnapshotHistory(snapshots);
   const retryPersistAll = (): boolean => retryPersistActiveTrip() && retryPersistSnapshotHistory();
 
+  const retryParseActiveTripStorage = (): { ok: boolean; message: string } => {
+    const parsedResult = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
+    setActiveTripRawPayloadSize(parsedResult.rawPayloadSize);
+    setActiveTripParseStatus(parsedResult.parseStatus);
+    if (parsedResult.corruption) {
+      setActiveTripCorruption(parsedResult.corruption);
+      return { ok: false, message: parsedResult.corruption.message };
+    }
+    setActiveTripCorruption(null);
+    setActiveTripPersistenceError(null);
+    setHistory({
+      past: [],
+      present: parsedResult.trip,
+      future: [],
+    });
+    return { ok: true, message: 'Active trip storage parsed successfully.' };
+  };
+
+  const retryParseSnapshotHistoryStorage = (): { ok: boolean; message: string } => {
+    const parsedResult = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
+    setSnapshotHistoryRawPayloadSize(parsedResult.rawPayloadSize);
+    setSnapshotHistoryParseStatus(parsedResult.parseStatus);
+    if (parsedResult.corruption) {
+      setSnapshotHistoryCorruption(parsedResult.corruption);
+      return { ok: false, message: parsedResult.corruption.message };
+    }
+    setSnapshotHistoryCorruption(null);
+    setSnapshotHistoryPersistenceError(null);
+    setSnapshots(parsedResult.snapshots);
+    return { ok: true, message: 'Snapshot history storage parsed successfully.' };
+  };
+
+  const resetCorruptedActiveTrip = (): { ok: boolean; message: string } => {
+    const seeded = cloneTrip(seededTrip);
+    const serialized = JSON.stringify(seeded);
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
+    setHistory({
+      past: [],
+      present: seeded,
+      future: [],
+    });
+    setActiveTripCorruption(null);
+    setActiveTripParseStatus('valid');
+    setActiveTripRawPayloadSize(bytesInString(serialized));
+    setActiveTripPersistenceError(null);
+    setLastSuccessfulPersistenceAt(new Date().toISOString());
+    return { ok: true, message: 'Corrupted active trip reset to seeded trip.' };
+  };
+
+  const clearCorruptedSnapshotHistory = (): { ok: boolean; message: string } => {
+    window.localStorage.removeItem(LOCAL_SNAPSHOT_STORAGE_KEY);
+    setSnapshots([]);
+    setSnapshotHistoryCorruption(null);
+    setSnapshotHistoryParseStatus('missing');
+    setSnapshotHistoryRawPayloadSize(0);
+    setSnapshotHistoryPersistenceError(null);
+    setLastSuccessfulPersistenceAt(new Date().toISOString());
+    return { ok: true, message: 'Corrupted snapshot history has been cleared.' };
+  };
+
+  const buildCorruptedRawPayloadExport = (target: StorageTarget): string => {
+    const key = target === 'active-trip' ? LOCAL_STORAGE_KEY : LOCAL_SNAPSHOT_STORAGE_KEY;
+    const rawValue = safeReadStorageValue(key);
+    if (rawValue === null) {
+      throw new Error(`No raw payload found for ${target}.`);
+    }
+    return JSON.stringify(
+      {
+        target,
+        storageKey: key,
+        exportedAt: new Date().toISOString(),
+        rawValue,
+      },
+      null,
+      2,
+    );
+  };
+
+  const corruptedRawPayloadFileName = (target: StorageTarget): string =>
+    target === 'active-trip'
+      ? `travel-buddy-corrupt-trip-${formatDiagnosticsTimestamp(new Date())}.json`
+      : `travel-buddy-corrupt-snapshots-${formatDiagnosticsTimestamp(new Date())}.json`;
+
   const mostRecentPersistenceError = useMemo(() => {
     if (!activeTripPersistenceError && !snapshotHistoryPersistenceError) {
       return null;
@@ -880,8 +1182,8 @@ export function useTripStore() {
     const pinnedSnapshotCount = snapshots.filter((snapshot) => snapshot.pinned).length;
     const unpinnedSnapshotCount = snapshots.length - pinnedSnapshotCount;
     return {
-      activeTripStorageStatus: activeTripPersistenceError ? 'error' : 'healthy',
-      snapshotHistoryStorageStatus: snapshotHistoryPersistenceError ? 'error' : 'healthy',
+      activeTripStorageStatus: activeTripPersistenceError || activeTripCorruption ? 'error' : 'healthy',
+      snapshotHistoryStorageStatus: snapshotHistoryPersistenceError || snapshotHistoryCorruption ? 'error' : 'healthy',
       totalSnapshotCount: snapshots.length,
       pinnedSnapshotCount,
       unpinnedSnapshotCount,
@@ -892,13 +1194,76 @@ export function useTripStore() {
       snapshotHistoryPersistenceError,
     };
   }, [
+    activeTripCorruption,
     activeTripPersistenceError,
     history.present,
     lastSuccessfulPersistenceAt,
     mostRecentPersistenceError,
+    snapshotHistoryCorruption,
     snapshotHistoryPersistenceError,
     snapshots,
   ]);
+
+  const storageDiagnostics = useMemo<StorageDiagnosticsSummary>(() => {
+    const pinnedSnapshotCount = snapshots.filter((snapshot) => snapshot.pinned).length;
+    const unpinnedSnapshotCount = snapshots.length - pinnedSnapshotCount;
+    return {
+      applicationVersion: APPLICATION_VERSION,
+      backupVersion: BACKUP_VERSION,
+      snapshotHistoryVersion: SNAPSHOT_HISTORY_VERSION,
+      activeTripStorageKey: LOCAL_STORAGE_KEY,
+      snapshotHistoryStorageKey: LOCAL_SNAPSHOT_STORAGE_KEY,
+      activeTripRawPayloadSize,
+      snapshotHistoryRawPayloadSize,
+      totalEstimatedStoredSize: activeTripRawPayloadSize + snapshotHistoryRawPayloadSize,
+      activeTripParseStatus,
+      snapshotHistoryParseStatus,
+      lastSuccessfulPersistenceAt,
+      latestActiveTripPersistenceError: activeTripPersistenceError,
+      latestSnapshotHistoryPersistenceError: snapshotHistoryPersistenceError,
+      totalSnapshotCount: snapshots.length,
+      pinnedSnapshotCount,
+      unpinnedSnapshotCount,
+      browserTimestamp: new Date().toISOString(),
+    };
+  }, [
+    activeTripParseStatus,
+    activeTripPersistenceError,
+    activeTripRawPayloadSize,
+    lastSuccessfulPersistenceAt,
+    snapshotHistoryParseStatus,
+    snapshotHistoryPersistenceError,
+    snapshotHistoryRawPayloadSize,
+    snapshots,
+  ]);
+
+  const diagnosticsFileName = (): string => `travel-buddy-diagnostics-${formatDiagnosticsTimestamp(new Date())}.json`;
+
+  const toDiagnosticsJson = (): string =>
+    JSON.stringify(
+      {
+        generatedAt: new Date().toISOString(),
+        applicationVersion: storageDiagnostics.applicationVersion,
+        backupVersion: storageDiagnostics.backupVersion,
+        snapshotHistoryVersion: storageDiagnostics.snapshotHistoryVersion,
+        activeTripStorageKey: storageDiagnostics.activeTripStorageKey,
+        snapshotHistoryStorageKey: storageDiagnostics.snapshotHistoryStorageKey,
+        activeTripRawPayloadSize: storageDiagnostics.activeTripRawPayloadSize,
+        snapshotHistoryRawPayloadSize: storageDiagnostics.snapshotHistoryRawPayloadSize,
+        totalEstimatedStoredSize: storageDiagnostics.totalEstimatedStoredSize,
+        activeTripParseStatus: storageDiagnostics.activeTripParseStatus,
+        snapshotHistoryParseStatus: storageDiagnostics.snapshotHistoryParseStatus,
+        lastSuccessfulPersistenceAt: storageDiagnostics.lastSuccessfulPersistenceAt,
+        latestActiveTripPersistenceError: storageDiagnostics.latestActiveTripPersistenceError,
+        latestSnapshotHistoryPersistenceError: storageDiagnostics.latestSnapshotHistoryPersistenceError,
+        totalSnapshotCount: storageDiagnostics.totalSnapshotCount,
+        pinnedSnapshotCount: storageDiagnostics.pinnedSnapshotCount,
+        unpinnedSnapshotCount: storageDiagnostics.unpinnedSnapshotCount,
+        browserTimestamp: storageDiagnostics.browserTimestamp,
+      },
+      null,
+      2,
+    );
 
   return {
     trip: history.present,
@@ -935,6 +1300,17 @@ export function useTripStore() {
     retryPersistActiveTrip,
     retryPersistSnapshotHistory,
     retryPersistAll,
+    retryParseActiveTripStorage,
+    retryParseSnapshotHistoryStorage,
+    resetCorruptedActiveTrip,
+    clearCorruptedSnapshotHistory,
+    activeTripCorruption,
+    snapshotHistoryCorruption,
+    storageDiagnostics,
+    toDiagnosticsJson,
+    diagnosticsFileName,
+    buildCorruptedRawPayloadExport,
+    corruptedRawPayloadFileName,
     storageHealth,
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,

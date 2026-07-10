@@ -247,6 +247,17 @@ export function TripWorkspace() {
     retryPersistActiveTrip,
     retryPersistSnapshotHistory,
     retryPersistAll,
+    retryParseActiveTripStorage,
+    retryParseSnapshotHistoryStorage,
+    resetCorruptedActiveTrip,
+    clearCorruptedSnapshotHistory,
+    activeTripCorruption,
+    snapshotHistoryCorruption,
+    storageDiagnostics,
+    toDiagnosticsJson,
+    diagnosticsFileName,
+    buildCorruptedRawPayloadExport,
+    corruptedRawPayloadFileName,
     storageHealth,
     storageKeys,
   } = useTripStore();
@@ -274,6 +285,7 @@ export function TripWorkspace() {
     fileName: string;
   } | null>(null);
   const [pendingCleanup, setPendingCleanup] = useState<{ mode: SnapshotCleanupMode; count: number } | null>(null);
+  const [pendingRecoveryAction, setPendingRecoveryAction] = useState<'active-trip' | 'snapshot-history' | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
@@ -629,6 +641,49 @@ export function TripWorkspace() {
             ? 'Snapshot history persistence retry failed.'
             : 'Persistence retry failed for one or more storage targets.',
     });
+  };
+
+  const exportJsonFile = (jsonContent: string, fileName: string) => {
+    const blob = new Blob([jsonContent], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = fileName;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportDiagnostics = () => {
+    const diagnosticsJson = toDiagnosticsJson();
+    const fileName = diagnosticsFileName();
+    exportJsonFile(diagnosticsJson, fileName);
+    setFeedback({ kind: 'success', message: `Diagnostics exported: ${fileName}` });
+  };
+
+  const handleExportCorruptedRawPayload = (target: 'active-trip' | 'snapshot-history') => {
+    try {
+      const rawJson = buildCorruptedRawPayloadExport(target);
+      const fileName = corruptedRawPayloadFileName(target);
+      exportJsonFile(rawJson, fileName);
+      setFeedback({ kind: 'success', message: `Raw corrupted payload exported: ${fileName}` });
+    } catch (error) {
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Raw payload export failed.' });
+    }
+  };
+
+  const handleRetryParse = (target: 'active-trip' | 'snapshot-history') => {
+    const result = target === 'active-trip' ? retryParseActiveTripStorage() : retryParseSnapshotHistoryStorage();
+    setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
+  };
+
+  const handleConfirmRecoveryAction = () => {
+    if (!pendingRecoveryAction) {
+      return;
+    }
+    const result =
+      pendingRecoveryAction === 'active-trip' ? resetCorruptedActiveTrip() : clearCorruptedSnapshotHistory();
+    setPendingRecoveryAction(null);
+    setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -1081,6 +1136,175 @@ export function TripWorkspace() {
                     className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
                   >
                     Cancel cleanup
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Diagnostics &amp; Recovery</p>
+              <button
+                type="button"
+                onClick={handleExportDiagnostics}
+                className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+              >
+                Export Diagnostics
+              </button>
+            </div>
+
+            <dl className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <dt className="text-slate-400">Application version</dt>
+                <dd>{storageDiagnostics.applicationVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Backup version</dt>
+                <dd>{storageDiagnostics.backupVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Snapshot-history version</dt>
+                <dd>{storageDiagnostics.snapshotHistoryVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Active-trip raw payload size</dt>
+                <dd>{formatBytes(storageDiagnostics.activeTripRawPayloadSize)}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Snapshot-history raw payload size</dt>
+                <dd>{formatBytes(storageDiagnostics.snapshotHistoryRawPayloadSize)}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Total estimated stored size</dt>
+                <dd>{formatBytes(storageDiagnostics.totalEstimatedStoredSize)}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Active-trip parse status</dt>
+                <dd>{storageDiagnostics.activeTripParseStatus}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Snapshot-history parse status</dt>
+                <dd>{storageDiagnostics.snapshotHistoryParseStatus}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Browser timestamp</dt>
+                <dd>{formatSnapshotDate(storageDiagnostics.browserTimestamp)}</dd>
+              </div>
+            </dl>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2">
+              <article className="rounded-lg border border-white/10 p-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-300">Active trip target</p>
+                <p className="mt-1 text-xs text-slate-400">Storage key: {storageDiagnostics.activeTripStorageKey}</p>
+                {activeTripCorruption ? (
+                  <div className="mt-2 rounded-md border border-rose-300/40 bg-rose-500/10 p-2 text-xs text-rose-200">
+                    <p className="font-medium">Corruption detected</p>
+                    <p className="mt-1">{activeTripCorruption.message}</p>
+                    <p className="mt-1 text-rose-300">Detected: {formatSnapshotDate(activeTripCorruption.detectedAt)}</p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-emerald-300">No active-trip corruption detected.</p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRetryParse('active-trip')}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Retry Active Trip Parse
+                  </button>
+                  {activeTripCorruption ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExportCorruptedRawPayload('active-trip')}
+                        className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                      >
+                        Export Raw Active Trip Payload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingRecoveryAction('active-trip')}
+                        className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
+                      >
+                        Reset Corrupted Active Trip
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </article>
+
+              <article className="rounded-lg border border-white/10 p-3">
+                <p className="text-xs uppercase tracking-[0.2em] text-slate-300">Snapshot history target</p>
+                <p className="mt-1 text-xs text-slate-400">Storage key: {storageDiagnostics.snapshotHistoryStorageKey}</p>
+                {snapshotHistoryCorruption ? (
+                  <div className="mt-2 rounded-md border border-rose-300/40 bg-rose-500/10 p-2 text-xs text-rose-200">
+                    <p className="font-medium">Corruption detected</p>
+                    <p className="mt-1">{snapshotHistoryCorruption.message}</p>
+                    <p className="mt-1 text-rose-300">
+                      Detected: {formatSnapshotDate(snapshotHistoryCorruption.detectedAt)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-emerald-300">No snapshot-history corruption detected.</p>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => handleRetryParse('snapshot-history')}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Retry Snapshot History Parse
+                  </button>
+                  {snapshotHistoryCorruption ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleExportCorruptedRawPayload('snapshot-history')}
+                        className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                      >
+                        Export Raw Snapshot History Payload
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingRecoveryAction('snapshot-history')}
+                        className="rounded-full border border-rose-300/40 px-3 py-1 text-xs text-rose-100"
+                      >
+                        Clear Corrupted Snapshot History
+                      </button>
+                    </>
+                  ) : null}
+                </div>
+              </article>
+            </div>
+
+            {pendingRecoveryAction ? (
+              <div className="mt-3 rounded-lg border border-rose-300/40 bg-rose-500/10 p-3 text-xs text-rose-200">
+                <p className="font-medium">
+                  {pendingRecoveryAction === 'active-trip'
+                    ? 'Reset corrupted active trip to seeded demo trip?'
+                    : 'Clear corrupted snapshot history?'}
+                </p>
+                <p className="mt-1">
+                  {pendingRecoveryAction === 'active-trip'
+                    ? 'Snapshot history remains unchanged.'
+                    : 'Active trip remains unchanged.'}
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConfirmRecoveryAction}
+                    className="rounded-full border border-rose-300/50 px-3 py-1 text-xs text-rose-100"
+                  >
+                    Confirm recovery
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingRecoveryAction(null)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel
                   </button>
                 </div>
               </div>
