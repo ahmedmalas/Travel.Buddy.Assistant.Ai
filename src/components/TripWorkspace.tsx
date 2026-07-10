@@ -8,6 +8,7 @@ type Feedback = {
 
 type SnapshotSort = 'newest' | 'oldest' | 'trip-title' | 'item-count';
 type SnapshotTimeFilter = 'all' | 'today' | 'week' | 'month';
+type SnapshotPinnedFilter = 'all' | 'pinned' | 'unpinned';
 
 type ComparisonItem = {
   id: string;
@@ -222,6 +223,8 @@ export function TripWorkspace() {
     updateSnapshotDetails,
     snapshotLabelLimit,
     snapshotNotesLimit,
+    setSnapshotPinned,
+    unpinnedSnapshotLimit,
   } = useTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -233,6 +236,7 @@ export function TripWorkspace() {
   const [snapshotBackupVersionFilter, setSnapshotBackupVersionFilter] = useState<string>('all');
   const [snapshotApplicationVersionFilter, setSnapshotApplicationVersionFilter] = useState<string>('all');
   const [snapshotTimeFilter, setSnapshotTimeFilter] = useState<SnapshotTimeFilter>('all');
+  const [snapshotPinnedFilter, setSnapshotPinnedFilter] = useState<SnapshotPinnedFilter>('all');
   const [comparisonSnapshotIds, setComparisonSnapshotIds] = useState<string[]>([]);
   const [pendingComparisonRestore, setPendingComparisonRestore] = useState<{ snapshot: BackupSnapshot; label: 'A' | 'B' } | null>(null);
   const [modifiedSectionCollapsed, setModifiedSectionCollapsed] = useState(false);
@@ -292,7 +296,10 @@ export function TripWorkspace() {
       const applicationVersionMatch =
         snapshotApplicationVersionFilter === 'all' || snapshot.applicationVersion === snapshotApplicationVersionFilter;
       const timeRangeMatch = isInSelectedTimeRange(snapshot.createdAt, snapshotTimeFilter);
-      return backupVersionMatch && applicationVersionMatch && timeRangeMatch;
+      const pinnedMatch =
+        snapshotPinnedFilter === 'all' ||
+        (snapshotPinnedFilter === 'pinned' ? snapshot.pinned : !snapshot.pinned);
+      return backupVersionMatch && applicationVersionMatch && timeRangeMatch && pinnedMatch;
     });
 
     const sorted = [...filtered];
@@ -315,6 +322,7 @@ export function TripWorkspace() {
     snapshotBackupVersionFilter,
     snapshotApplicationVersionFilter,
     snapshotTimeFilter,
+    snapshotPinnedFilter,
     snapshotSort,
   ]);
   const comparisonSnapshots = useMemo(
@@ -534,6 +542,11 @@ export function TripWorkspace() {
     updateSnapshotDetails(editingSnapshotId, draftSnapshotLabel, draftSnapshotNotes);
     setFeedback({ kind: 'success', message: 'Snapshot label/notes updated.' });
     handleCancelSnapshotEdit();
+  };
+
+  const handleSetSnapshotPinned = (snapshot: BackupSnapshot, pinned: boolean) => {
+    setSnapshotPinned(snapshot.id, pinned);
+    setFeedback({ kind: 'success', message: pinned ? 'Snapshot pinned.' : 'Snapshot unpinned.' });
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -773,7 +786,10 @@ export function TripWorkspace() {
           <div className="flex items-center justify-between gap-2">
             <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Backup history</p>
             <div className="flex flex-wrap items-center gap-2">
-              <p className="text-xs text-slate-400">{snapshots.length} / 10 snapshots</p>
+              <p className="text-xs text-slate-400">
+                {snapshots.filter((snapshot) => !snapshot.pinned).length} / {unpinnedSnapshotLimit} unpinned •{' '}
+                {snapshots.filter((snapshot) => snapshot.pinned).length} pinned
+              </p>
               <button
                 type="button"
                 onClick={handleExportSnapshotHistory}
@@ -842,7 +858,7 @@ export function TripWorkspace() {
             </div>
           ) : null}
 
-          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-5">
+          <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">
             <label className="rounded-xl border border-white/10 px-3 py-2 text-xs">
               <span className="text-slate-400">Search snapshots</span>
               <input
@@ -928,6 +944,24 @@ export function TripWorkspace() {
                 </option>
               </select>
             </label>
+            <label className="rounded-xl border border-white/10 px-3 py-2 text-xs">
+              <span className="text-slate-400">Pinned filter</span>
+              <select
+                value={snapshotPinnedFilter}
+                onChange={(event) => setSnapshotPinnedFilter(event.target.value as SnapshotPinnedFilter)}
+                className="mt-1 w-full bg-transparent text-sm text-slate-100 outline-none"
+              >
+                <option value="all" className="bg-slate-900">
+                  All snapshots
+                </option>
+                <option value="pinned" className="bg-slate-900">
+                  Pinned only
+                </option>
+                <option value="unpinned" className="bg-slate-900">
+                  Unpinned only
+                </option>
+              </select>
+            </label>
           </div>
 
           {filteredSnapshots.length === 0 ? (
@@ -940,7 +974,14 @@ export function TripWorkspace() {
                 <li key={snapshot.id} className="rounded-xl border border-white/10 p-3">
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <div className="text-sm text-slate-200">
-                      <p>{snapshot.label.trim().length > 0 ? snapshot.label : snapshot.tripTitle}</p>
+                      <p className="flex flex-wrap items-center gap-2">
+                        <span>{snapshot.label.trim().length > 0 ? snapshot.label : snapshot.tripTitle}</span>
+                        {snapshot.pinned ? (
+                          <span className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[10px] uppercase tracking-[0.15em] text-amber-200">
+                            Pinned
+                          </span>
+                        ) : null}
+                      </p>
                       <p className="text-xs text-slate-400">
                         {formatSnapshotDate(snapshot.createdAt)} • {snapshot.itineraryItemCount} items • backup v
                         {snapshot.backupVersion} • app v{snapshot.applicationVersion}
@@ -961,6 +1002,13 @@ export function TripWorkspace() {
                         className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
                       >
                         Restore
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleSetSnapshotPinned(snapshot, !snapshot.pinned)}
+                        className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+                      >
+                        {snapshot.pinned ? 'Unpin' : 'Pin'}
                       </button>
                       <button
                         type="button"

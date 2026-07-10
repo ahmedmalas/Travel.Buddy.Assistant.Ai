@@ -52,6 +52,7 @@ export type BackupSnapshot = {
   backupVersion: number;
   applicationVersion: string;
   linkedRecordCount: number | null;
+  pinned: boolean;
   label: string;
   notes: string;
   trip: TripData;
@@ -76,7 +77,7 @@ type SnapshotHistoryBackup = {
 const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 const HISTORY_LIMIT = 50;
-const SNAPSHOT_LIMIT = 10;
+const UNPINNED_SNAPSHOT_LIMIT = 10;
 const BACKUP_VERSION = 2;
 const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
@@ -151,6 +152,7 @@ const isBackupSnapshot = (value: unknown): value is BackupSnapshot => {
     typeof snapshot.backupVersion === 'number' &&
     typeof snapshot.applicationVersion === 'string' &&
     (typeof snapshot.linkedRecordCount === 'number' || snapshot.linkedRecordCount === null || snapshot.linkedRecordCount === undefined) &&
+    (typeof snapshot.pinned === 'boolean' || snapshot.pinned === undefined) &&
     (typeof snapshot.label === 'string' || snapshot.label === undefined) &&
     (typeof snapshot.notes === 'string' || snapshot.notes === undefined) &&
     isTripData(snapshot.trip)
@@ -165,10 +167,25 @@ const normalizeSnapshot = (value: unknown): BackupSnapshot | null => {
   return {
     ...snapshot,
     linkedRecordCount: typeof snapshot.linkedRecordCount === 'number' ? snapshot.linkedRecordCount : null,
+    pinned: snapshot.pinned === true,
     label: typeof snapshot.label === 'string' ? snapshot.label.slice(0, SNAPSHOT_LABEL_LIMIT) : '',
     notes: typeof snapshot.notes === 'string' ? snapshot.notes.slice(0, SNAPSHOT_NOTES_LIMIT) : '',
     trip: sanitizeTrip(snapshot.trip),
   };
+};
+
+const applySnapshotRetention = (snapshots: BackupSnapshot[]): BackupSnapshot[] => {
+  let keptUnpinned = 0;
+  return snapshots.filter((snapshot) => {
+    if (snapshot.pinned) {
+      return true;
+    }
+    if (keptUnpinned >= UNPINNED_SNAPSHOT_LIMIT) {
+      return false;
+    }
+    keptUnpinned += 1;
+    return true;
+  });
 };
 
 const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
@@ -180,7 +197,7 @@ const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
     if (!Array.isArray(parsed)) {
       return [];
     }
-    return parsed.map(normalizeSnapshot).filter((snapshot): snapshot is BackupSnapshot => snapshot !== null).slice(0, SNAPSHOT_LIMIT);
+    return applySnapshotRetention(parsed.map(normalizeSnapshot).filter((snapshot): snapshot is BackupSnapshot => snapshot !== null));
   } catch {
     return [];
   }
@@ -394,8 +411,7 @@ const parseSnapshotHistoryBackup = (
 
   const normalizedSnapshots = parsedObject.snapshots
     .map(normalizeSnapshot)
-    .filter((snapshot): snapshot is BackupSnapshot => snapshot !== null)
-    .slice(0, SNAPSHOT_LIMIT);
+    .filter((snapshot): snapshot is BackupSnapshot => snapshot !== null);
 
   return {
     preview: {
@@ -404,7 +420,7 @@ const parseSnapshotHistoryBackup = (
       exportedAt,
       totalSnapshotCount,
     },
-    snapshots: normalizedSnapshots,
+    snapshots: applySnapshotRetention(normalizedSnapshots),
   };
 };
 
@@ -420,6 +436,7 @@ const makeSnapshot = (trip: TripData, linkedRecordCount: number | null = null): 
     backupVersion: BACKUP_VERSION,
     applicationVersion: APPLICATION_VERSION,
     linkedRecordCount,
+    pinned: false,
     label: '',
     notes: '',
     trip: sanitizedTrip,
@@ -465,7 +482,7 @@ export function useTripStore() {
 
   const pushSnapshot = (trip: TripData, linkedRecordCount: number | null = null) => {
     const snapshot = makeSnapshot(trip, linkedRecordCount);
-    setSnapshots((currentSnapshots) => [snapshot, ...currentSnapshots].slice(0, SNAPSHOT_LIMIT));
+    setSnapshots((currentSnapshots) => applySnapshotRetention([snapshot, ...currentSnapshots]));
   };
 
   const updateTrip = (
@@ -715,8 +732,24 @@ export function useTripStore() {
     );
   };
 
+  const setSnapshotPinned = (snapshotId: string, pinned: boolean) => {
+    setSnapshots((currentSnapshots) =>
+      applySnapshotRetention(
+        currentSnapshots.map((snapshot) => {
+          if (snapshot.id !== snapshotId) {
+            return snapshot;
+          }
+          return {
+            ...snapshot,
+            pinned,
+          };
+        }),
+      ),
+    );
+  };
+
   const importSnapshotHistory = (nextSnapshots: BackupSnapshot[]) => {
-    setSnapshots(nextSnapshots.slice(0, SNAPSHOT_LIMIT));
+    setSnapshots(applySnapshotRetention(nextSnapshots));
   };
 
   return {
@@ -746,9 +779,11 @@ export function useTripStore() {
     snapshots,
     restoreSnapshot,
     deleteSnapshot,
+    setSnapshotPinned,
     importSnapshotHistory,
     updateSnapshotDetails,
     snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
     snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,
+    unpinnedSnapshotLimit: UNPINNED_SNAPSHOT_LIMIT,
   };
 }
