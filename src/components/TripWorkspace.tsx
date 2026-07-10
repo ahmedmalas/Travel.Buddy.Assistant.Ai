@@ -258,6 +258,12 @@ export function TripWorkspace() {
     diagnosticsFileName,
     buildCorruptedRawPayloadExport,
     corruptedRawPayloadFileName,
+    integrityAuditReport,
+    runIntegrityAudit,
+    applyIntegrityRepairs,
+    clearIntegrityAudit,
+    toIntegrityAuditJson,
+    integrityAuditFileName,
     storageHealth,
     storageKeys,
   } = useTripStore();
@@ -286,6 +292,8 @@ export function TripWorkspace() {
   } | null>(null);
   const [pendingCleanup, setPendingCleanup] = useState<{ mode: SnapshotCleanupMode; count: number } | null>(null);
   const [pendingRecoveryAction, setPendingRecoveryAction] = useState<'active-trip' | 'snapshot-history' | null>(null);
+  const [selectedRepairIssueIds, setSelectedRepairIssueIds] = useState<string[]>([]);
+  const [pendingRepairConfirmation, setPendingRepairConfirmation] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
@@ -683,6 +691,47 @@ export function TripWorkspace() {
     const result =
       pendingRecoveryAction === 'active-trip' ? resetCorruptedActiveTrip() : clearCorruptedSnapshotHistory();
     setPendingRecoveryAction(null);
+    setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
+  };
+
+  const handleRunIntegrityAudit = () => {
+    const report = runIntegrityAudit();
+    setSelectedRepairIssueIds(report.repairableIssueIds);
+    setPendingRepairConfirmation(false);
+    setFeedback({
+      kind: 'success',
+      message:
+        report.issueCount === 0
+          ? 'Integrity audit completed with no issues.'
+          : `Integrity audit completed: ${report.issueCount} issue${report.issueCount === 1 ? '' : 's'} found.`,
+    });
+  };
+
+  const handleToggleRepairIssue = (issueId: string) => {
+    setSelectedRepairIssueIds((currentSelection) =>
+      currentSelection.includes(issueId)
+        ? currentSelection.filter((currentId) => currentId !== issueId)
+        : [...currentSelection, issueId],
+    );
+  };
+
+  const handleExportIntegrityAudit = () => {
+    try {
+      const auditJson = toIntegrityAuditJson();
+      const fileName = integrityAuditFileName();
+      exportJsonFile(auditJson, fileName);
+      setFeedback({ kind: 'success', message: `Integrity audit report exported: ${fileName}` });
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Integrity audit report export failed.',
+      });
+    }
+  };
+
+  const handleConfirmApplyRepairs = () => {
+    const result = applyIntegrityRepairs(selectedRepairIssueIds);
+    setPendingRepairConfirmation(false);
     setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
   };
 
@@ -1309,6 +1358,160 @@ export function TripWorkspace() {
                 </div>
               </div>
             ) : null}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Integrity Audit</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleRunIntegrityAudit}
+                  className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                >
+                  Run Integrity Audit
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportIntegrityAudit}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Export Audit Report
+                </button>
+              </div>
+            </div>
+
+            {integrityAuditReport ? (
+              <>
+                <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-5">
+                  <p>Total issues: {integrityAuditReport.issueCount}</p>
+                  <p>Warnings: {integrityAuditReport.warningCount}</p>
+                  <p>Repairable errors: {integrityAuditReport.repairableErrorCount}</p>
+                  <p>Blocking errors: {integrityAuditReport.blockingErrorCount}</p>
+                  <p>Generated: {formatSnapshotDate(integrityAuditReport.generatedAt)}</p>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {integrityAuditReport.issues.length === 0 ? (
+                    <p className="text-xs text-emerald-300">No integrity issues detected.</p>
+                  ) : (
+                    integrityAuditReport.issues.map((issue) => {
+                      const selectable = issue.automaticRepairAvailable;
+                      const isSelected = selectedRepairIssueIds.includes(issue.id);
+                      return (
+                        <article key={issue.id} className="rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+                          <div className="flex flex-wrap items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium">
+                                [{issue.target}] {issue.issueType}
+                              </p>
+                              <p className="text-slate-400">Record: {issue.affectedRecord}</p>
+                              <p className="mt-1">{issue.description}</p>
+                              <p className="mt-1 text-slate-300">Proposed repair: {issue.proposedRepair}</p>
+                            </div>
+                            <div className="flex flex-col items-end gap-2">
+                              <span
+                                className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-[0.1em] ${
+                                  issue.severity === 'warning'
+                                    ? 'border border-amber-300/50 text-amber-200'
+                                    : issue.severity === 'repairable-error'
+                                      ? 'border border-sky-300/50 text-sky-200'
+                                      : 'border border-rose-300/50 text-rose-200'
+                                }`}
+                              >
+                                {issue.severity}
+                              </span>
+                              {selectable ? (
+                                <label className="flex items-center gap-1 text-[11px] text-slate-300">
+                                  <input
+                                    type="checkbox"
+                                    checked={isSelected}
+                                    onChange={() => handleToggleRepairIssue(issue.id)}
+                                  />
+                                  Apply repair
+                                </label>
+                              ) : (
+                                <span className="text-[11px] text-slate-400">Automatic repair unavailable</span>
+                              )}
+                            </div>
+                          </div>
+                        </article>
+                      );
+                    })
+                  )}
+                </div>
+
+                <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+                  <p className="font-medium text-slate-100">Repair preview</p>
+                  <p className="mt-1">Repairable issues detected: {integrityAuditReport.repairableIssueIds.length}</p>
+                  <p>Selected repairs: {selectedRepairIssueIds.length}</p>
+                  <p>
+                    Unresolved after selected apply:{' '}
+                    {integrityAuditReport.issueCount - selectedRepairIssueIds.length}
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setPendingRepairConfirmation(true)}
+                      className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                    >
+                      Apply Selected Repairs
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedRepairIssueIds(integrityAuditReport.repairableIssueIds);
+                        setPendingRepairConfirmation(false);
+                      }}
+                      className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                    >
+                      Reset selection
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        clearIntegrityAudit();
+                        setSelectedRepairIssueIds([]);
+                        setPendingRepairConfirmation(false);
+                      }}
+                      className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+
+                {pendingRepairConfirmation ? (
+                  <div className="mt-3 rounded-lg border border-emerald-300/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
+                    <p className="font-medium">Apply selected integrity repairs?</p>
+                    <p className="mt-1">
+                      Selected repairs: {selectedRepairIssueIds.length}. Unselected and unresolved issues remain listed.
+                    </p>
+                    <p className="mt-1">
+                      Pre-repair protection is created automatically for active-trip repairs and internal snapshot backups.
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <button
+                        type="button"
+                        onClick={handleConfirmApplyRepairs}
+                        className="rounded-full border border-emerald-300/50 px-3 py-1 text-xs text-emerald-100"
+                      >
+                        Confirm apply
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPendingRepairConfirmation(false)}
+                        className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <p className="mt-3 text-xs text-slate-400">No audit has been run yet.</p>
+            )}
           </div>
 
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">

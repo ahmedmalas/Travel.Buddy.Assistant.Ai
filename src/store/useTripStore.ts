@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import packageMetadata from '../../package.json';
 
 export type TripStop = {
@@ -119,6 +119,33 @@ export type StorageDiagnosticsSummary = {
   browserTimestamp: string;
 };
 
+export type IntegrityIssueSeverity = 'warning' | 'repairable-error' | 'blocking-error';
+export type IntegrityIssueTarget = 'active-trip' | 'snapshot-history';
+
+export type IntegrityIssue = {
+  id: string;
+  target: IntegrityIssueTarget;
+  issueType: string;
+  severity: IntegrityIssueSeverity;
+  affectedRecord: string;
+  description: string;
+  proposedRepair: string;
+  automaticRepairAvailable: boolean;
+};
+
+export type IntegrityAuditReport = {
+  generatedAt: string;
+  applicationVersion: string;
+  backupVersion: number;
+  snapshotHistoryVersion: number;
+  issueCount: number;
+  warningCount: number;
+  repairableErrorCount: number;
+  blockingErrorCount: number;
+  repairableIssueIds: string[];
+  issues: IntegrityIssue[];
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -137,6 +164,7 @@ const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 const SNAPSHOT_LABEL_LIMIT = 60;
 const SNAPSHOT_NOTES_LIMIT = 500;
+const INTEGRITY_REPAIR_BACKUP_STORAGE_KEY = 'travel-buddy:integrity-repair-backups:v1';
 
 const bytesInString = (value: string): number => {
   if (typeof TextEncoder !== 'undefined') {
@@ -689,6 +717,38 @@ const safeReadStorageValue = (key: string): string | null => {
   }
 };
 
+const isIsoDateLike = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
+
+const normalizeDateUnambiguous = (value: string): string | null => {
+  const trimmed = value.trim();
+  if (isIsoDateLike(trimmed)) {
+    return trimmed;
+  }
+  const asDate = new Date(trimmed);
+  if (Number.isNaN(asDate.getTime())) {
+    return null;
+  }
+  return asDate.toISOString().slice(0, 10);
+};
+
+const normalizeTimeUnambiguous = (value: string): string | null => {
+  const trimmed = value.trim();
+  const hhmm = /^([01]?\d|2[0-3]):([0-5]\d)$/.exec(trimmed);
+  if (hhmm) {
+    return `${hhmm[1].padStart(2, '0')}:${hhmm[2]}`;
+  }
+  return null;
+};
+
+const timeToMinutes = (value: string): number | null => {
+  const normalized = normalizeTimeUnambiguous(value);
+  if (!normalized) {
+    return null;
+  }
+  const [hours, minutes] = normalized.split(':').map((part) => Number(part));
+  return hours * 60 + minutes;
+};
+
 export function useTripStore() {
   const initialActiveTripStorage = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
   const initialSnapshotStorage = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
@@ -715,6 +775,10 @@ export function useTripStore() {
   const [activeTripPersistenceError, setActiveTripPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [snapshotHistoryPersistenceError, setSnapshotHistoryPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [lastSuccessfulPersistenceAt, setLastSuccessfulPersistenceAt] = useState<string | null>(null);
+  const [integrityAuditReport, setIntegrityAuditReport] = useState<IntegrityAuditReport | null>(null);
+  const integrityRepairOperationsRef = useRef<
+    Map<string, (context: { activeTripDraft: Record<string, unknown> | null; snapshotDraft: unknown[] | null }) => void>
+  >(new Map());
 
   const persistActiveTrip = (trip: TripData): boolean => {
     if (activeTripCorruption) {
@@ -1080,6 +1144,817 @@ export function useTripStore() {
   const retryPersistSnapshotHistory = (): boolean => persistSnapshotHistory(snapshots);
   const retryPersistAll = (): boolean => retryPersistActiveTrip() && retryPersistSnapshotHistory();
 
+  const runIntegrityAudit = (): IntegrityAuditReport => {
+    const issueList: IntegrityIssue[] = [];
+    const repairOperations = new Map<
+      string,
+      (context: { activeTripDraft: Record<string, unknown> | null; snapshotDraft: unknown[] | null }) => void
+    >();
+    let issueIndex = 0;
+    const nextIssueId = (prefix: string): string => `${prefix}-${issueIndex++}`;
+
+    const registerIssue = (
+      issue: Omit<IntegrityIssue, 'id'>,
+      repairOperation?: (context: { activeTripDraft: Record<string, unknown> | null; snapshotDraft: unknown[] | null }) => void,
+    ) => {
+      const id = nextIssueId(issue.target);
+      issueList.push({ id, ...issue });
+      if (repairOperation) {
+        repairOperations.set(id, repairOperation);
+      }
+    };
+
+    const activeRawValue = safeReadStorageValue(LOCAL_STORAGE_KEY);
+    let activeTripDraft: Record<string, unknown> | null = null;
+    if (activeRawValue !== null) {
+      try {
+        const parsed = JSON.parse(activeRawValue);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          activeTripDraft = parsed as Record<string, unknown>;
+        } else {
+          registerIssue({
+            target: 'active-trip',
+            issueType: 'invalid-active-trip-structure',
+            severity: 'blocking-error',
+            affectedRecord: 'root',
+            description: 'Active trip root payload is not an object.',
+            proposedRepair: 'No automatic repair. Use recovery tools.',
+            automaticRepairAvailable: false,
+          });
+        }
+      } catch {
+        registerIssue({
+          target: 'active-trip',
+          issueType: 'malformed-active-trip-json',
+          severity: 'blocking-error',
+          affectedRecord: 'root',
+          description: 'Active trip payload is malformed JSON.',
+          proposedRepair: 'No automatic repair. Use recovery tools.',
+          automaticRepairAvailable: false,
+        });
+      }
+    }
+
+    if (activeTripDraft) {
+      if (typeof activeTripDraft.tripName !== 'string' || activeTripDraft.tripName.trim().length === 0) {
+        registerIssue(
+          {
+            target: 'active-trip',
+            issueType: 'missing-trip-title',
+            severity: 'repairable-error',
+            affectedRecord: 'tripName',
+            description: 'Trip title is missing or invalid.',
+            proposedRepair: 'Set trip title to "Untitled Trip".',
+            automaticRepairAvailable: true,
+          },
+          ({ activeTripDraft: draft }) => {
+            if (draft) {
+              draft.tripName = 'Untitled Trip';
+            }
+          },
+        );
+      }
+
+      const rawStops = Array.isArray(activeTripDraft.stops) ? activeTripDraft.stops : null;
+      if (!rawStops) {
+        registerIssue({
+          target: 'active-trip',
+          issueType: 'missing-stops-array',
+          severity: 'blocking-error',
+          affectedRecord: 'stops',
+          description: 'Stops array is missing or invalid.',
+          proposedRepair: 'No automatic repair. Use recovery tools.',
+          automaticRepairAvailable: false,
+        });
+      } else {
+        const idOccurrences = new Map<string, number[]>();
+        for (let stopIndex = 0; stopIndex < rawStops.length; stopIndex += 1) {
+          const stop = rawStops[stopIndex];
+          if (!stop || typeof stop !== 'object' || Array.isArray(stop)) {
+            registerIssue({
+              target: 'active-trip',
+              issueType: 'invalid-stop-record',
+              severity: 'blocking-error',
+              affectedRecord: `stops[${stopIndex}]`,
+              description: 'Stop record is malformed.',
+              proposedRepair: 'No automatic repair for malformed stop object.',
+              automaticRepairAvailable: false,
+            });
+            continue;
+          }
+          const stopRecord = stop as Record<string, unknown>;
+
+          if (typeof stopRecord.id !== 'string' || stopRecord.id.trim().length === 0) {
+            registerIssue(
+              {
+                target: 'active-trip',
+                issueType: 'missing-stop-id',
+                severity: 'repairable-error',
+                affectedRecord: `stops[${stopIndex}].id`,
+                description: 'Stop ID is missing or invalid.',
+                proposedRepair: 'Generate a new unique stop ID.',
+                automaticRepairAvailable: true,
+              },
+              ({ activeTripDraft: draft }) => {
+                const draftStops = draft?.stops;
+                if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                  (draftStops[stopIndex] as Record<string, unknown>).id = `s-${crypto.randomUUID()}`;
+                }
+              },
+            );
+          } else {
+            const existing = idOccurrences.get(stopRecord.id) ?? [];
+            idOccurrences.set(stopRecord.id, [...existing, stopIndex]);
+          }
+
+          if (typeof stopRecord.title !== 'string' || stopRecord.title.trim().length === 0) {
+            registerIssue(
+              {
+                target: 'active-trip',
+                issueType: 'missing-stop-title',
+                severity: 'repairable-error',
+                affectedRecord: `stops[${stopIndex}].title`,
+                description: 'Stop title is missing or invalid.',
+                proposedRepair: 'Set safe default title.',
+                automaticRepairAvailable: true,
+              },
+              ({ activeTripDraft: draft }) => {
+                const draftStops = draft?.stops;
+                if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                  (draftStops[stopIndex] as Record<string, unknown>).title = 'Untitled itinerary item';
+                }
+              },
+            );
+          }
+
+          if (typeof stopRecord.notes !== 'string') {
+            registerIssue(
+              {
+                target: 'active-trip',
+                issueType: 'invalid-stop-notes-type',
+                severity: 'repairable-error',
+                affectedRecord: `stops[${stopIndex}].notes`,
+                description: 'Notes field has invalid type.',
+                proposedRepair: 'Replace notes with an empty string.',
+                automaticRepairAvailable: true,
+              },
+              ({ activeTripDraft: draft }) => {
+                const draftStops = draft?.stops;
+                if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                  (draftStops[stopIndex] as Record<string, unknown>).notes = '';
+                }
+              },
+            );
+          }
+
+          const dateValue = stopRecord.date;
+          if (dateValue === undefined || dateValue === null || String(dateValue).trim().length === 0) {
+            registerIssue({
+              target: 'active-trip',
+              issueType: 'missing-date',
+              severity: 'warning',
+              affectedRecord: `stops[${stopIndex}].date`,
+              description: 'Date is missing.',
+              proposedRepair: 'No automatic repair for missing date.',
+              automaticRepairAvailable: false,
+            });
+          } else if (typeof dateValue !== 'string') {
+            registerIssue({
+              target: 'active-trip',
+              issueType: 'invalid-date-type',
+              severity: 'blocking-error',
+              affectedRecord: `stops[${stopIndex}].date`,
+              description: 'Date field type is invalid.',
+              proposedRepair: 'No automatic repair for ambiguous date type.',
+              automaticRepairAvailable: false,
+            });
+          } else {
+            const normalizedDate = normalizeDateUnambiguous(dateValue);
+            if (!normalizedDate) {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'invalid-date-format',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}].date`,
+                description: 'Date format is invalid or ambiguous.',
+                proposedRepair: 'No automatic repair for ambiguous date format.',
+                automaticRepairAvailable: false,
+              });
+            } else if (normalizedDate !== dateValue.trim()) {
+              registerIssue(
+                {
+                  target: 'active-trip',
+                  issueType: 'normalizable-date-format',
+                  severity: 'repairable-error',
+                  affectedRecord: `stops[${stopIndex}].date`,
+                  description: 'Date can be normalized to canonical format.',
+                  proposedRepair: `Normalize date to ${normalizedDate}.`,
+                  automaticRepairAvailable: true,
+                },
+                ({ activeTripDraft: draft }) => {
+                  const draftStops = draft?.stops;
+                  if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                    (draftStops[stopIndex] as Record<string, unknown>).date = normalizedDate;
+                  }
+                },
+              );
+            }
+          }
+
+          const startTimeValue = stopRecord.startTime;
+          const endTimeValue = stopRecord.endTime;
+          const normalizedStartTime =
+            typeof startTimeValue === 'string' ? normalizeTimeUnambiguous(startTimeValue) : null;
+          const normalizedEndTime = typeof endTimeValue === 'string' ? normalizeTimeUnambiguous(endTimeValue) : null;
+
+          if (startTimeValue !== undefined && startTimeValue !== null) {
+            if (typeof startTimeValue !== 'string') {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'invalid-start-time-type',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}].startTime`,
+                description: 'Start time type is invalid.',
+                proposedRepair: 'No automatic repair for non-string start time.',
+                automaticRepairAvailable: false,
+              });
+            } else if (!normalizedStartTime) {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'invalid-start-time-format',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}].startTime`,
+                description: 'Start time format is invalid or ambiguous.',
+                proposedRepair: 'No automatic repair for ambiguous time format.',
+                automaticRepairAvailable: false,
+              });
+            } else if (normalizedStartTime !== startTimeValue.trim()) {
+              registerIssue(
+                {
+                  target: 'active-trip',
+                  issueType: 'normalizable-start-time',
+                  severity: 'repairable-error',
+                  affectedRecord: `stops[${stopIndex}].startTime`,
+                  description: 'Start time can be normalized.',
+                  proposedRepair: `Normalize start time to ${normalizedStartTime}.`,
+                  automaticRepairAvailable: true,
+                },
+                ({ activeTripDraft: draft }) => {
+                  const draftStops = draft?.stops;
+                  if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                    (draftStops[stopIndex] as Record<string, unknown>).startTime = normalizedStartTime;
+                  }
+                },
+              );
+            }
+          }
+
+          if (endTimeValue !== undefined && endTimeValue !== null) {
+            if (typeof endTimeValue !== 'string') {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'invalid-end-time-type',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}].endTime`,
+                description: 'End time type is invalid.',
+                proposedRepair: 'No automatic repair for non-string end time.',
+                automaticRepairAvailable: false,
+              });
+            } else if (!normalizedEndTime) {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'invalid-end-time-format',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}].endTime`,
+                description: 'End time format is invalid or ambiguous.',
+                proposedRepair: 'No automatic repair for ambiguous time format.',
+                automaticRepairAvailable: false,
+              });
+            } else if (normalizedEndTime !== endTimeValue.trim()) {
+              registerIssue(
+                {
+                  target: 'active-trip',
+                  issueType: 'normalizable-end-time',
+                  severity: 'repairable-error',
+                  affectedRecord: `stops[${stopIndex}].endTime`,
+                  description: 'End time can be normalized.',
+                  proposedRepair: `Normalize end time to ${normalizedEndTime}.`,
+                  automaticRepairAvailable: true,
+                },
+                ({ activeTripDraft: draft }) => {
+                  const draftStops = draft?.stops;
+                  if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                    (draftStops[stopIndex] as Record<string, unknown>).endTime = normalizedEndTime;
+                  }
+                },
+              );
+            }
+          }
+
+          if (normalizedStartTime && normalizedEndTime) {
+            const startMinutes = timeToMinutes(normalizedStartTime);
+            const endMinutes = timeToMinutes(normalizedEndTime);
+            if (startMinutes !== null && endMinutes !== null && endMinutes < startMinutes) {
+              registerIssue({
+                target: 'active-trip',
+                issueType: 'end-time-before-start-time',
+                severity: 'blocking-error',
+                affectedRecord: `stops[${stopIndex}]`,
+                description: 'End time is earlier than start time.',
+                proposedRepair: 'No automatic repair for ambiguous schedule intent.',
+                automaticRepairAvailable: false,
+              });
+            }
+          }
+
+          const linkedFields = [
+            'linkedReferences',
+            'linkedReferenceIds',
+            'linkedDocs',
+            'linkedDocuments',
+            'vaultReferences',
+            'linkedVault',
+          ];
+          for (const linkedField of linkedFields) {
+            if (!(linkedField in stopRecord)) {
+              continue;
+            }
+            const linkedValue = stopRecord[linkedField];
+            if (!Array.isArray(linkedValue)) {
+              registerIssue(
+                {
+                  target: 'active-trip',
+                  issueType: 'malformed-linked-reference-array',
+                  severity: 'repairable-error',
+                  affectedRecord: `stops[${stopIndex}].${linkedField}`,
+                  description: 'Linked-reference field is not an array.',
+                  proposedRepair: `Replace ${linkedField} with an empty array.`,
+                  automaticRepairAvailable: true,
+                },
+                ({ activeTripDraft: draft }) => {
+                  const draftStops = draft?.stops;
+                  if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                    (draftStops[stopIndex] as Record<string, unknown>)[linkedField] = [];
+                  }
+                },
+              );
+              continue;
+            }
+            const validEntries = linkedValue.filter((entry) => typeof entry === 'string' && entry.trim().length > 0);
+            if (validEntries.length !== linkedValue.length) {
+              registerIssue(
+                {
+                  target: 'active-trip',
+                  issueType: 'malformed-linked-reference-entry',
+                  severity: 'repairable-error',
+                  affectedRecord: `stops[${stopIndex}].${linkedField}`,
+                  description: 'Linked-reference array contains malformed entries.',
+                  proposedRepair: `Remove malformed entries in ${linkedField}.`,
+                  automaticRepairAvailable: true,
+                },
+                ({ activeTripDraft: draft }) => {
+                  const draftStops = draft?.stops;
+                  if (Array.isArray(draftStops) && draftStops[stopIndex] && typeof draftStops[stopIndex] === 'object') {
+                    const currentValue = (draftStops[stopIndex] as Record<string, unknown>)[linkedField];
+                    if (Array.isArray(currentValue)) {
+                      (draftStops[stopIndex] as Record<string, unknown>)[linkedField] = currentValue.filter(
+                        (entry) => typeof entry === 'string' && entry.trim().length > 0,
+                      );
+                    }
+                  }
+                },
+              );
+            }
+          }
+        }
+
+        for (const [stopId, indexes] of idOccurrences.entries()) {
+          if (indexes.length <= 1) {
+            continue;
+          }
+          indexes.slice(1).forEach((duplicateIndex) => {
+            registerIssue(
+              {
+                target: 'active-trip',
+                issueType: 'duplicate-stop-id',
+                severity: 'repairable-error',
+                affectedRecord: `stops[${duplicateIndex}].id`,
+                description: `Duplicate stop ID detected (${stopId}).`,
+                proposedRepair: 'Replace duplicate stop ID with a new unique ID.',
+                automaticRepairAvailable: true,
+              },
+              ({ activeTripDraft: draft }) => {
+                const draftStops = draft?.stops;
+                if (Array.isArray(draftStops) && draftStops[duplicateIndex] && typeof draftStops[duplicateIndex] === 'object') {
+                  (draftStops[duplicateIndex] as Record<string, unknown>).id = `s-${crypto.randomUUID()}`;
+                }
+              },
+            );
+          });
+        }
+      }
+    }
+
+    const snapshotRawValue = safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY);
+    let snapshotDraft: unknown[] | null = null;
+    if (snapshotRawValue !== null) {
+      try {
+        const parsed = JSON.parse(snapshotRawValue);
+        if (Array.isArray(parsed)) {
+          snapshotDraft = parsed;
+        } else {
+          registerIssue({
+            target: 'snapshot-history',
+            issueType: 'invalid-snapshot-root',
+            severity: 'blocking-error',
+            affectedRecord: 'root',
+            description: 'Snapshot history root payload is not an array.',
+            proposedRepair: 'No automatic repair. Use recovery tools.',
+            automaticRepairAvailable: false,
+          });
+        }
+      } catch {
+        registerIssue({
+          target: 'snapshot-history',
+          issueType: 'malformed-snapshot-json',
+          severity: 'blocking-error',
+          affectedRecord: 'root',
+          description: 'Snapshot history payload is malformed JSON.',
+          proposedRepair: 'No automatic repair. Use recovery tools.',
+          automaticRepairAvailable: false,
+        });
+      }
+    }
+
+    if (snapshotDraft) {
+      const snapshotIdOccurrences = new Map<string, number[]>();
+      for (let snapshotIndex = 0; snapshotIndex < snapshotDraft.length; snapshotIndex += 1) {
+        const snapshot = snapshotDraft[snapshotIndex];
+        if (!snapshot || typeof snapshot !== 'object' || Array.isArray(snapshot)) {
+          registerIssue({
+            target: 'snapshot-history',
+            issueType: 'invalid-snapshot-record',
+            severity: 'blocking-error',
+            affectedRecord: `snapshots[${snapshotIndex}]`,
+            description: 'Snapshot record is malformed.',
+            proposedRepair: 'No automatic repair for malformed snapshot object.',
+            automaticRepairAvailable: false,
+          });
+          continue;
+        }
+        const snapshotRecord = snapshot as Record<string, unknown>;
+
+        if (typeof snapshotRecord.id !== 'string' || snapshotRecord.id.trim().length === 0) {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'missing-snapshot-id',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${snapshotIndex}].id`,
+              description: 'Snapshot ID is missing or invalid.',
+              proposedRepair: 'Generate a new unique snapshot ID.',
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                (draft[snapshotIndex] as Record<string, unknown>).id = crypto.randomUUID();
+              }
+            },
+          );
+        } else {
+          const existing = snapshotIdOccurrences.get(snapshotRecord.id) ?? [];
+          snapshotIdOccurrences.set(snapshotRecord.id, [...existing, snapshotIndex]);
+        }
+
+        if (typeof snapshotRecord.createdAt !== 'string' || Number.isNaN(new Date(snapshotRecord.createdAt).getTime())) {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'invalid-snapshot-timestamp',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${snapshotIndex}].createdAt`,
+              description: 'Snapshot timestamp is missing or invalid.',
+              proposedRepair: 'Replace with current ISO timestamp.',
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                (draft[snapshotIndex] as Record<string, unknown>).createdAt = new Date().toISOString();
+              }
+            },
+          );
+        }
+
+        if (typeof snapshotRecord.pinned !== 'boolean' && snapshotRecord.pinned !== undefined) {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'invalid-pinned-value',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${snapshotIndex}].pinned`,
+              description: 'Pinned value is not a boolean.',
+              proposedRepair: 'Normalize pinned to false.',
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                (draft[snapshotIndex] as Record<string, unknown>).pinned = false;
+              }
+            },
+          );
+        }
+
+        if (typeof snapshotRecord.label === 'string' && snapshotRecord.label.length > SNAPSHOT_LABEL_LIMIT) {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'oversized-snapshot-label',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${snapshotIndex}].label`,
+              description: 'Snapshot label exceeds maximum length.',
+              proposedRepair: `Truncate label to ${SNAPSHOT_LABEL_LIMIT} characters.`,
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                const record = draft[snapshotIndex] as Record<string, unknown>;
+                if (typeof record.label === 'string') {
+                  record.label = record.label.slice(0, SNAPSHOT_LABEL_LIMIT);
+                }
+              }
+            },
+          );
+        }
+
+        if (typeof snapshotRecord.notes === 'string' && snapshotRecord.notes.length > SNAPSHOT_NOTES_LIMIT) {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'oversized-snapshot-notes',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${snapshotIndex}].notes`,
+              description: 'Snapshot notes exceed maximum length.',
+              proposedRepair: `Truncate notes to ${SNAPSHOT_NOTES_LIMIT} characters.`,
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                const record = draft[snapshotIndex] as Record<string, unknown>;
+                if (typeof record.notes === 'string') {
+                  record.notes = record.notes.slice(0, SNAPSHOT_NOTES_LIMIT);
+                }
+              }
+            },
+          );
+        }
+
+        if (typeof snapshotRecord.trip === 'object' && snapshotRecord.trip && !Array.isArray(snapshotRecord.trip)) {
+          const tripRecord = snapshotRecord.trip as Record<string, unknown>;
+          const tripStops = Array.isArray(tripRecord.stops) ? tripRecord.stops : [];
+          const expectedCount = tripStops.length;
+          if (typeof snapshotRecord.itineraryItemCount !== 'number' || snapshotRecord.itineraryItemCount !== expectedCount) {
+            registerIssue(
+              {
+                target: 'snapshot-history',
+                issueType: 'snapshot-item-count-mismatch',
+                severity: 'repairable-error',
+                affectedRecord: `snapshots[${snapshotIndex}].itineraryItemCount`,
+                description: 'Snapshot item count does not match trip payload.',
+                proposedRepair: `Recalculate itineraryItemCount to ${expectedCount}.`,
+                automaticRepairAvailable: true,
+              },
+              ({ snapshotDraft: draft }) => {
+                if (draft && draft[snapshotIndex] && typeof draft[snapshotIndex] === 'object') {
+                  (draft[snapshotIndex] as Record<string, unknown>).itineraryItemCount = expectedCount;
+                }
+              },
+            );
+          }
+        }
+      }
+
+      for (const [snapshotId, indexes] of snapshotIdOccurrences.entries()) {
+        if (indexes.length <= 1) {
+          continue;
+        }
+        indexes.slice(1).forEach((duplicateIndex) => {
+          registerIssue(
+            {
+              target: 'snapshot-history',
+              issueType: 'duplicate-snapshot-id',
+              severity: 'repairable-error',
+              affectedRecord: `snapshots[${duplicateIndex}].id`,
+              description: `Duplicate snapshot ID detected (${snapshotId}).`,
+              proposedRepair: 'Replace duplicate snapshot ID with a new unique ID.',
+              automaticRepairAvailable: true,
+            },
+            ({ snapshotDraft: draft }) => {
+              if (draft && draft[duplicateIndex] && typeof draft[duplicateIndex] === 'object') {
+                (draft[duplicateIndex] as Record<string, unknown>).id = crypto.randomUUID();
+              }
+            },
+          );
+        });
+      }
+    }
+
+    integrityRepairOperationsRef.current = repairOperations;
+
+    const warningCount = issueList.filter((issue) => issue.severity === 'warning').length;
+    const repairableErrorCount = issueList.filter((issue) => issue.severity === 'repairable-error').length;
+    const blockingErrorCount = issueList.filter((issue) => issue.severity === 'blocking-error').length;
+    const repairableIssueIds = issueList
+      .filter((issue) => issue.automaticRepairAvailable)
+      .map((issue) => issue.id);
+
+    const report: IntegrityAuditReport = {
+      generatedAt: new Date().toISOString(),
+      applicationVersion: APPLICATION_VERSION,
+      backupVersion: BACKUP_VERSION,
+      snapshotHistoryVersion: SNAPSHOT_HISTORY_VERSION,
+      issueCount: issueList.length,
+      warningCount,
+      repairableErrorCount,
+      blockingErrorCount,
+      repairableIssueIds,
+      issues: issueList,
+    };
+    setIntegrityAuditReport(report);
+    return report;
+  };
+
+  const integrityAuditFileName = (): string =>
+    `travel-buddy-integrity-audit-${formatDiagnosticsTimestamp(new Date())}.json`;
+
+  const toIntegrityAuditJson = (): string => {
+    if (!integrityAuditReport) {
+      throw new Error('Run integrity audit before exporting.');
+    }
+    return JSON.stringify(
+      {
+        generatedAt: integrityAuditReport.generatedAt,
+        applicationVersion: integrityAuditReport.applicationVersion,
+        backupVersion: integrityAuditReport.backupVersion,
+        snapshotHistoryVersion: integrityAuditReport.snapshotHistoryVersion,
+        issueCount: integrityAuditReport.issueCount,
+        warningCount: integrityAuditReport.warningCount,
+        repairableErrorCount: integrityAuditReport.repairableErrorCount,
+        blockingErrorCount: integrityAuditReport.blockingErrorCount,
+        issues: integrityAuditReport.issues.map((issue) => ({
+          id: issue.id,
+          target: issue.target,
+          issueType: issue.issueType,
+          severity: issue.severity,
+          affectedRecord: issue.affectedRecord,
+          description: issue.description,
+          proposedRepair: issue.proposedRepair,
+          automaticRepairAvailable: issue.automaticRepairAvailable,
+        })),
+      },
+      null,
+      2,
+    );
+  };
+
+  const appendInternalRepairBackup = (target: StorageTarget, rawValue: string) => {
+    const current = safeReadStorageValue(INTEGRITY_REPAIR_BACKUP_STORAGE_KEY);
+    let existing: Array<{ id: string; target: StorageTarget; createdAt: string; rawValue: string }> = [];
+    if (current) {
+      try {
+        const parsed = JSON.parse(current);
+        if (Array.isArray(parsed)) {
+          existing = parsed.filter((entry) => entry && typeof entry === 'object') as Array<{
+            id: string;
+            target: StorageTarget;
+            createdAt: string;
+            rawValue: string;
+          }>;
+        }
+      } catch {
+        existing = [];
+      }
+    }
+    const next = [
+      {
+        id: crypto.randomUUID(),
+        target,
+        createdAt: new Date().toISOString(),
+        rawValue,
+      },
+      ...existing,
+    ].slice(0, 20);
+    window.localStorage.setItem(INTEGRITY_REPAIR_BACKUP_STORAGE_KEY, JSON.stringify(next));
+  };
+
+  const applyIntegrityRepairs = (
+    selectedIssueIds: string[],
+  ): {
+    ok: boolean;
+    message: string;
+    appliedCount: number;
+    unresolvedCount: number;
+  } => {
+    if (selectedIssueIds.length === 0) {
+      return { ok: false, message: 'No repairable issues selected.', appliedCount: 0, unresolvedCount: 0 };
+    }
+
+    const operations = integrityRepairOperationsRef.current;
+    const activeRawValue = safeReadStorageValue(LOCAL_STORAGE_KEY);
+    const snapshotRawValue = safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY);
+    let activeTripDraft: Record<string, unknown> | null = null;
+    let snapshotDraft: unknown[] | null = null;
+    if (activeRawValue) {
+      try {
+        const parsed = JSON.parse(activeRawValue);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          activeTripDraft = parsed as Record<string, unknown>;
+        }
+      } catch {
+        activeTripDraft = null;
+      }
+    }
+    if (snapshotRawValue) {
+      try {
+        const parsed = JSON.parse(snapshotRawValue);
+        if (Array.isArray(parsed)) {
+          snapshotDraft = parsed;
+        }
+      } catch {
+        snapshotDraft = null;
+      }
+    }
+
+    const selectedSet = new Set(selectedIssueIds);
+    const selectedIssues =
+      integrityAuditReport?.issues.filter((issue) => selectedSet.has(issue.id) && issue.automaticRepairAvailable) ?? [];
+    const activeTripWillChange = selectedIssues.some((issue) => issue.target === 'active-trip');
+    const snapshotsWillChange = selectedIssues.some((issue) => issue.target === 'snapshot-history');
+
+    if (activeTripWillChange) {
+      const preRepairSnapshot = {
+        ...makeSnapshot(history.present),
+        pinned: true,
+        label: 'Pre-repair active trip',
+        notes: 'Auto-created before integrity repairs.',
+      };
+      setSnapshots((currentSnapshots) => applySnapshotRetention([preRepairSnapshot, ...currentSnapshots]));
+    }
+
+    if (snapshotsWillChange && snapshotRawValue !== null) {
+      appendInternalRepairBackup('snapshot-history', snapshotRawValue);
+    }
+
+    let appliedCount = 0;
+    for (const issueId of selectedIssueIds) {
+      const operation = operations.get(issueId);
+      if (!operation) {
+        continue;
+      }
+      operation({ activeTripDraft, snapshotDraft });
+      appliedCount += 1;
+    }
+
+    if (activeTripWillChange && activeTripDraft) {
+      const serialized = JSON.stringify(activeTripDraft);
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, serialized);
+      const reparsed = parsePersistedTripStorage(serialized);
+      setHistory({
+        past: [],
+        present: reparsed.trip,
+        future: [],
+      });
+      setActiveTripCorruption(reparsed.corruption);
+      setActiveTripParseStatus(reparsed.parseStatus);
+      setActiveTripRawPayloadSize(reparsed.rawPayloadSize);
+      setActiveTripPersistenceError(null);
+    }
+
+    if (snapshotsWillChange && snapshotDraft) {
+      const serialized = JSON.stringify(snapshotDraft);
+      window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, serialized);
+      const reparsed = parsePersistedSnapshotStorage(serialized);
+      setSnapshots(reparsed.snapshots);
+      setSnapshotHistoryCorruption(reparsed.corruption);
+      setSnapshotHistoryParseStatus(reparsed.parseStatus);
+      setSnapshotHistoryRawPayloadSize(reparsed.rawPayloadSize);
+      setSnapshotHistoryPersistenceError(null);
+    }
+
+    setLastSuccessfulPersistenceAt(new Date().toISOString());
+    const nextReport = runIntegrityAudit();
+    return {
+      ok: true,
+      message: `Applied ${appliedCount} repair${appliedCount === 1 ? '' : 's'}.`,
+      appliedCount,
+      unresolvedCount: nextReport.issueCount,
+    };
+  };
+
+  const clearIntegrityAudit = () => {
+    setIntegrityAuditReport(null);
+    integrityRepairOperationsRef.current = new Map();
+  };
+
   const retryParseActiveTripStorage = (): { ok: boolean; message: string } => {
     const parsedResult = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
     setActiveTripRawPayloadSize(parsedResult.rawPayloadSize);
@@ -1311,6 +2186,12 @@ export function useTripStore() {
     diagnosticsFileName,
     buildCorruptedRawPayloadExport,
     corruptedRawPayloadFileName,
+    integrityAuditReport,
+    runIntegrityAudit,
+    applyIntegrityRepairs,
+    clearIntegrityAudit,
+    toIntegrityAuditJson,
+    integrityAuditFileName,
     storageHealth,
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,
