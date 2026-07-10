@@ -65,6 +65,29 @@ export type SnapshotHistoryImportPreview = {
   totalSnapshotCount: number;
 };
 
+export type SnapshotCleanupMode = 'all-unpinned' | 'older-than-7' | 'older-than-30' | 'older-than-90';
+
+type PersistenceErrorTarget = 'active-trip' | 'snapshot-history';
+
+export type PersistenceErrorInfo = {
+  target: PersistenceErrorTarget;
+  message: string;
+  occurredAt: string;
+};
+
+export type StorageHealthSummary = {
+  activeTripStorageStatus: 'healthy' | 'error';
+  snapshotHistoryStorageStatus: 'healthy' | 'error';
+  totalSnapshotCount: number;
+  pinnedSnapshotCount: number;
+  unpinnedSnapshotCount: number;
+  estimatedStoredBytes: number;
+  lastSuccessfulPersistenceAt: string | null;
+  mostRecentPersistenceError: PersistenceErrorInfo | null;
+  activeTripPersistenceError: PersistenceErrorInfo | null;
+  snapshotHistoryPersistenceError: PersistenceErrorInfo | null;
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -83,6 +106,24 @@ const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 const SNAPSHOT_LABEL_LIMIT = 60;
 const SNAPSHOT_NOTES_LIMIT = 500;
+
+const bytesInString = (value: string): number => {
+  if (typeof TextEncoder !== 'undefined') {
+    return new TextEncoder().encode(value).length;
+  }
+  return value.length;
+};
+
+const getPersistenceErrorMessage = (error: unknown, target: PersistenceErrorTarget): string => {
+  const targetLabel = target === 'active-trip' ? 'active trip' : 'snapshot history';
+  if (error instanceof DOMException && error.name === 'QuotaExceededError') {
+    return `Local storage quota exceeded while saving ${targetLabel}.`;
+  }
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return `Failed to save ${targetLabel}: ${error.message}`;
+  }
+  return `Failed to save ${targetLabel} to local storage.`;
+};
 
 const seededTrip: TripData = {
   tripName: 'Japan Discovery',
@@ -186,6 +227,22 @@ const applySnapshotRetention = (snapshots: BackupSnapshot[]): BackupSnapshot[] =
     keptUnpinned += 1;
     return true;
   });
+};
+
+const isSnapshotOlderThanDays = (snapshot: BackupSnapshot, days: number): boolean => {
+  const createdAt = new Date(snapshot.createdAt);
+  if (Number.isNaN(createdAt.getTime())) {
+    return false;
+  }
+  return Date.now() - createdAt.getTime() > days * 24 * 60 * 60 * 1000;
+};
+
+const getSnapshotsMatchingCleanup = (snapshots: BackupSnapshot[], mode: SnapshotCleanupMode): BackupSnapshot[] => {
+  if (mode === 'all-unpinned') {
+    return snapshots.filter((snapshot) => !snapshot.pinned);
+  }
+  const dayLimit = mode === 'older-than-7' ? 7 : mode === 'older-than-30' ? 30 : 90;
+  return snapshots.filter((snapshot) => !snapshot.pinned && isSnapshotOlderThanDays(snapshot, dayLimit));
 };
 
 const parsePersistedSnapshots = (rawValue: string | null): BackupSnapshot[] => {
@@ -470,12 +527,47 @@ export function useTripStore() {
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() =>
     parsePersistedSnapshots(window.localStorage.getItem(LOCAL_SNAPSHOT_STORAGE_KEY)),
   );
+  const [activeTripPersistenceError, setActiveTripPersistenceError] = useState<PersistenceErrorInfo | null>(null);
+  const [snapshotHistoryPersistenceError, setSnapshotHistoryPersistenceError] = useState<PersistenceErrorInfo | null>(null);
+  const [lastSuccessfulPersistenceAt, setLastSuccessfulPersistenceAt] = useState<string | null>(null);
+
+  const persistActiveTrip = (trip: TripData): boolean => {
+    try {
+      window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(trip));
+      setActiveTripPersistenceError(null);
+      setLastSuccessfulPersistenceAt(new Date().toISOString());
+      return true;
+    } catch (error) {
+      setActiveTripPersistenceError({
+        target: 'active-trip',
+        message: getPersistenceErrorMessage(error, 'active-trip'),
+        occurredAt: new Date().toISOString(),
+      });
+      return false;
+    }
+  };
+
+  const persistSnapshotHistory = (nextSnapshots: BackupSnapshot[]): boolean => {
+    try {
+      window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, JSON.stringify(nextSnapshots));
+      setSnapshotHistoryPersistenceError(null);
+      setLastSuccessfulPersistenceAt(new Date().toISOString());
+      return true;
+    } catch (error) {
+      setSnapshotHistoryPersistenceError({
+        target: 'snapshot-history',
+        message: getPersistenceErrorMessage(error, 'snapshot-history'),
+        occurredAt: new Date().toISOString(),
+      });
+      return false;
+    }
+  };
 
   useEffect(() => {
-    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(history.present));
+    persistActiveTrip(history.present);
   }, [history.present]);
   useEffect(() => {
-    window.localStorage.setItem(LOCAL_SNAPSHOT_STORAGE_KEY, JSON.stringify(snapshots));
+    persistSnapshotHistory(snapshots);
   }, [snapshots]);
 
   const searchIndex = useMemo(() => buildSearchIndex(history.present), [history.present]);
@@ -752,6 +844,62 @@ export function useTripStore() {
     setSnapshots(applySnapshotRetention(nextSnapshots));
   };
 
+  const getCleanupPreviewCount = (mode: SnapshotCleanupMode): number =>
+    getSnapshotsMatchingCleanup(snapshots, mode).length;
+
+  const cleanupSnapshots = (mode: SnapshotCleanupMode): number => {
+    const toDelete = getSnapshotsMatchingCleanup(snapshots, mode);
+    if (toDelete.length === 0) {
+      return 0;
+    }
+    const deleteIds = new Set(toDelete.map((snapshot) => snapshot.id));
+    setSnapshots((currentSnapshots) => currentSnapshots.filter((snapshot) => !deleteIds.has(snapshot.id)));
+    return toDelete.length;
+  };
+
+  const retryPersistActiveTrip = (): boolean => persistActiveTrip(history.present);
+  const retryPersistSnapshotHistory = (): boolean => persistSnapshotHistory(snapshots);
+  const retryPersistAll = (): boolean => retryPersistActiveTrip() && retryPersistSnapshotHistory();
+
+  const mostRecentPersistenceError = useMemo(() => {
+    if (!activeTripPersistenceError && !snapshotHistoryPersistenceError) {
+      return null;
+    }
+    if (!activeTripPersistenceError) {
+      return snapshotHistoryPersistenceError;
+    }
+    if (!snapshotHistoryPersistenceError) {
+      return activeTripPersistenceError;
+    }
+    return new Date(activeTripPersistenceError.occurredAt) >= new Date(snapshotHistoryPersistenceError.occurredAt)
+      ? activeTripPersistenceError
+      : snapshotHistoryPersistenceError;
+  }, [activeTripPersistenceError, snapshotHistoryPersistenceError]);
+
+  const storageHealth = useMemo<StorageHealthSummary>(() => {
+    const pinnedSnapshotCount = snapshots.filter((snapshot) => snapshot.pinned).length;
+    const unpinnedSnapshotCount = snapshots.length - pinnedSnapshotCount;
+    return {
+      activeTripStorageStatus: activeTripPersistenceError ? 'error' : 'healthy',
+      snapshotHistoryStorageStatus: snapshotHistoryPersistenceError ? 'error' : 'healthy',
+      totalSnapshotCount: snapshots.length,
+      pinnedSnapshotCount,
+      unpinnedSnapshotCount,
+      estimatedStoredBytes: bytesInString(JSON.stringify(history.present)) + bytesInString(JSON.stringify(snapshots)),
+      lastSuccessfulPersistenceAt,
+      mostRecentPersistenceError,
+      activeTripPersistenceError,
+      snapshotHistoryPersistenceError,
+    };
+  }, [
+    activeTripPersistenceError,
+    history.present,
+    lastSuccessfulPersistenceAt,
+    mostRecentPersistenceError,
+    snapshotHistoryPersistenceError,
+    snapshots,
+  ]);
+
   return {
     trip: history.present,
     canUndo: history.past.length > 0,
@@ -782,6 +930,16 @@ export function useTripStore() {
     setSnapshotPinned,
     importSnapshotHistory,
     updateSnapshotDetails,
+    getCleanupPreviewCount,
+    cleanupSnapshots,
+    retryPersistActiveTrip,
+    retryPersistSnapshotHistory,
+    retryPersistAll,
+    storageHealth,
+    storageKeys: {
+      activeTrip: LOCAL_STORAGE_KEY,
+      snapshotHistory: LOCAL_SNAPSHOT_STORAGE_KEY,
+    },
     snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
     snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,
     unpinnedSnapshotLimit: UNPINNED_SNAPSHOT_LIMIT,

@@ -1,5 +1,12 @@
 import { useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { useTripStore, type BackupSnapshot, type ImportPreview, type SnapshotHistoryImportPreview, type TripData } from '../store/useTripStore';
+import {
+  useTripStore,
+  type BackupSnapshot,
+  type ImportPreview,
+  type SnapshotCleanupMode,
+  type SnapshotHistoryImportPreview,
+  type TripData,
+} from '../store/useTripStore';
 
 type Feedback = {
   kind: 'success' | 'error';
@@ -51,6 +58,16 @@ const groupStopsByDay = (stops: ReturnType<typeof useTripStore>['sortedStops']) 
 };
 
 const formatSnapshotDate = (value: string): string => new Date(value).toLocaleString();
+
+const formatBytes = (bytes: number): string => {
+  if (bytes < 1024) {
+    return `${bytes} B`;
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+};
 
 const isInSelectedTimeRange = (dateValue: string, range: SnapshotTimeFilter): boolean => {
   if (range === 'all') {
@@ -225,6 +242,13 @@ export function TripWorkspace() {
     snapshotNotesLimit,
     setSnapshotPinned,
     unpinnedSnapshotLimit,
+    getCleanupPreviewCount,
+    cleanupSnapshots,
+    retryPersistActiveTrip,
+    retryPersistSnapshotHistory,
+    retryPersistAll,
+    storageHealth,
+    storageKeys,
   } = useTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -249,6 +273,7 @@ export function TripWorkspace() {
     snapshots: BackupSnapshot[];
     fileName: string;
   } | null>(null);
+  const [pendingCleanup, setPendingCleanup] = useState<{ mode: SnapshotCleanupMode; count: number } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const addedSectionRef = useRef<HTMLDivElement>(null);
@@ -547,6 +572,63 @@ export function TripWorkspace() {
   const handleSetSnapshotPinned = (snapshot: BackupSnapshot, pinned: boolean) => {
     setSnapshotPinned(snapshot.id, pinned);
     setFeedback({ kind: 'success', message: pinned ? 'Snapshot pinned.' : 'Snapshot unpinned.' });
+  };
+
+  const cleanupLabelByMode: Record<SnapshotCleanupMode, string> = {
+    'all-unpinned': 'Delete all unpinned snapshots',
+    'older-than-7': 'Delete unpinned snapshots older than 7 days',
+    'older-than-30': 'Delete unpinned snapshots older than 30 days',
+    'older-than-90': 'Delete unpinned snapshots older than 90 days',
+  };
+
+  const handleRequestCleanup = (mode: SnapshotCleanupMode) => {
+    const count = getCleanupPreviewCount(mode);
+    setPendingCleanup({ mode, count });
+  };
+
+  const handleConfirmCleanup = () => {
+    if (!pendingCleanup) {
+      return;
+    }
+    const deletedCount = cleanupSnapshots(pendingCleanup.mode);
+    setPendingCleanup(null);
+    setFeedback({
+      kind: 'success',
+      message:
+        deletedCount === 0
+          ? 'No matching unpinned snapshots to delete.'
+          : `${deletedCount} unpinned snapshot${deletedCount === 1 ? '' : 's'} deleted.`,
+    });
+  };
+
+  const handleRetryPersistence = (target: 'active-trip' | 'snapshot-history' | 'both') => {
+    const success =
+      target === 'active-trip'
+        ? retryPersistActiveTrip()
+        : target === 'snapshot-history'
+          ? retryPersistSnapshotHistory()
+          : retryPersistAll();
+    if (success) {
+      setFeedback({
+        kind: 'success',
+        message:
+          target === 'active-trip'
+            ? 'Active trip persistence retry succeeded.'
+            : target === 'snapshot-history'
+              ? 'Snapshot history persistence retry succeeded.'
+              : 'Trip and snapshot persistence retry succeeded.',
+      });
+      return;
+    }
+    setFeedback({
+      kind: 'error',
+      message:
+        target === 'active-trip'
+          ? 'Active trip persistence retry failed.'
+          : target === 'snapshot-history'
+            ? 'Snapshot history persistence retry failed.'
+            : 'Persistence retry failed for one or more storage targets.',
+    });
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -857,6 +939,153 @@ export function TripWorkspace() {
               </div>
             </div>
           ) : null}
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Storage health</p>
+            <dl className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-3">
+              <div>
+                <dt className="text-slate-400">Active trip storage status</dt>
+                <dd className={storageHealth.activeTripStorageStatus === 'healthy' ? 'text-emerald-300' : 'text-rose-300'}>
+                  {storageHealth.activeTripStorageStatus === 'healthy' ? 'Healthy' : 'Error'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Snapshot history storage status</dt>
+                <dd className={storageHealth.snapshotHistoryStorageStatus === 'healthy' ? 'text-emerald-300' : 'text-rose-300'}>
+                  {storageHealth.snapshotHistoryStorageStatus === 'healthy' ? 'Healthy' : 'Error'}
+                </dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Estimated stored data size</dt>
+                <dd>{formatBytes(storageHealth.estimatedStoredBytes)}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Total snapshots</dt>
+                <dd>{storageHealth.totalSnapshotCount}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Pinned snapshots</dt>
+                <dd>{storageHealth.pinnedSnapshotCount}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Unpinned snapshots</dt>
+                <dd>{storageHealth.unpinnedSnapshotCount}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Last successful persistence</dt>
+                <dd>{storageHealth.lastSuccessfulPersistenceAt ? formatSnapshotDate(storageHealth.lastSuccessfulPersistenceAt) : 'Not yet recorded'}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Active trip storage key</dt>
+                <dd className="break-all">{storageKeys.activeTrip}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-400">Snapshot storage key</dt>
+                <dd className="break-all">{storageKeys.snapshotHistory}</dd>
+              </div>
+            </dl>
+
+            {storageHealth.mostRecentPersistenceError ? (
+              <div className="mt-3 rounded-lg border border-rose-300/40 bg-rose-500/10 p-3 text-xs text-rose-200">
+                <p className="font-medium">Most recent persistence error</p>
+                <p className="mt-1">
+                  [{storageHealth.mostRecentPersistenceError.target}] {storageHealth.mostRecentPersistenceError.message}
+                </p>
+                <p className="mt-1 text-rose-300">
+                  {formatSnapshotDate(storageHealth.mostRecentPersistenceError.occurredAt)}
+                </p>
+              </div>
+            ) : null}
+
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleRetryPersistence('active-trip')}
+                className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+              >
+                Retry active trip save
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRetryPersistence('snapshot-history')}
+                className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+              >
+                Retry snapshot save
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRetryPersistence('both')}
+                className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+              >
+                Retry both saves
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => handleRequestCleanup('all-unpinned')}
+                className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+              >
+                Delete all unpinned
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRequestCleanup('older-than-7')}
+                className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+              >
+                Delete older than 7 days
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRequestCleanup('older-than-30')}
+                className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+              >
+                Delete older than 30 days
+              </button>
+              <button
+                type="button"
+                onClick={() => handleRequestCleanup('older-than-90')}
+                className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+              >
+                Delete older than 90 days
+              </button>
+            </div>
+
+            {pendingCleanup ? (
+              <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <p className="font-medium">{cleanupLabelByMode[pendingCleanup.mode]}</p>
+                <p className="mt-1">
+                  This will delete {pendingCleanup.count} unpinned snapshot{pendingCleanup.count === 1 ? '' : 's'}.
+                  Pinned snapshots are protected.
+                </p>
+                <p className="mt-1 text-amber-200">Active trip data will remain unchanged.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleExportSnapshotHistory}
+                    className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                  >
+                    Export Snapshot History
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleConfirmCleanup}
+                    className="rounded-full border border-amber-300/50 px-3 py-1 text-xs text-amber-100"
+                  >
+                    Continue cleanup
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingCleanup(null)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel cleanup
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">
             <label className="rounded-xl border border-white/10 px-3 py-2 text-xs">
