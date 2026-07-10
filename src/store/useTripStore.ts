@@ -190,6 +190,78 @@ export type IntegrityHistoryImportPreview = {
   baselineRunId: string | null;
 };
 
+export type IntegrityTrendDirection = 'Improving' | 'Stable' | 'Deteriorating';
+
+export type IntegrityTrendWindow = 'latest-5' | 'latest-10' | 'all-retained';
+
+export type IntegrityTrendSummary = {
+  window: IntegrityTrendWindow;
+  sampleSize: number;
+  direction: IntegrityTrendDirection;
+  averageIssueCount: number;
+  averageBlockingErrorCount: number;
+  averageRepairableErrorCount: number;
+  averageWarningCount: number;
+};
+
+export type IntegrityAuditStatistics = {
+  totalAuditRuns: number;
+  firstAuditAt: string | null;
+  latestAuditAt: string | null;
+  averageDurationMs: number;
+  fastestDurationMs: number;
+  slowestDurationMs: number;
+  averageIssueCount: number;
+  highestIssueCount: number;
+  lowestIssueCount: number;
+};
+
+export type IntegritySeverityTotals = {
+  warningCount: number;
+  repairableErrorCount: number;
+  blockingErrorCount: number;
+};
+
+export type IntegrityStreakSummary = {
+  currentImprovementStreak: number;
+  longestImprovementStreak: number;
+  currentRegressionStreak: number;
+  currentStableStreak: number;
+};
+
+export type IntegrityStorageWarningLevel = 'Informational' | 'Warning' | 'Critical';
+
+export type IntegrityStorageUsageSummary = {
+  totalUsedBytes: number;
+  estimatedRemainingBytes: number;
+  integrityHistoryBytes: number;
+  snapshotHistoryBytes: number;
+  tripStateBytes: number;
+  warningLevel: IntegrityStorageWarningLevel;
+};
+
+export type IntegrityHistoryValidationSummary = {
+  duplicateRunIds: string[];
+  malformedRunCount: number;
+  invalidTimestampRunIds: string[];
+  malformedFingerprintRunIds: string[];
+  invalidBaselineReference: boolean;
+  unsupportedVersion: boolean;
+  missingMetadata: boolean;
+  status: 'Healthy' | 'Attention Required' | 'Critical';
+};
+
+export type IntegrityHistoryCompactionPreview = {
+  duplicateRunsRemoved: number;
+  malformedRunsRemoved: number;
+  invalidTimestampRunsRemoved: number;
+  malformedFingerprintRunsRemoved: number;
+  runsTrimmedByRetention: number;
+  baselineCleared: boolean;
+  resultingRunCount: number;
+  resultingBaselineRunId: string | null;
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -221,6 +293,7 @@ const INTEGRITY_HISTORY_STORAGE_KEY = 'travel-buddy:integrity-history:v1';
 const INTEGRITY_HISTORY_BASELINE_STORAGE_KEY = 'travel-buddy:integrity-history-baseline:v1';
 const INTEGRITY_HISTORY_VERSION = 1;
 const INTEGRITY_HISTORY_LIMIT = 20;
+const DEFAULT_LOCAL_STORAGE_CAPACITY_BYTES = 5 * 1024 * 1024;
 
 const bytesInString = (value: string): number => {
   if (typeof TextEncoder !== 'undefined') {
@@ -864,6 +937,63 @@ const classifyIntegrityHistoryChange = (delta: {
     return 'Improved';
   }
   return 'Unchanged';
+};
+
+const isValidTimestamp = (value: string): boolean => !Number.isNaN(new Date(value).getTime());
+
+const isValidIntegrityFingerprint = (value: string): boolean => {
+  const [target, issueType, affectedRecord, severity, ...rest] = value.split('|');
+  if (rest.length > 0) {
+    return false;
+  }
+  if (target !== 'active-trip' && target !== 'snapshot-history') {
+    return false;
+  }
+  if (typeof issueType !== 'string' || issueType.trim().length === 0) {
+    return false;
+  }
+  if (typeof affectedRecord !== 'string' || affectedRecord.trim().length === 0) {
+    return false;
+  }
+  return severity === 'warning' || severity === 'repairable-error' || severity === 'blocking-error';
+};
+
+const average = (values: number[]): number => {
+  if (values.length === 0) {
+    return 0;
+  }
+  return values.reduce((sum, value) => sum + value, 0) / values.length;
+};
+
+const roundToTwo = (value: number): number => Math.round(value * 100) / 100;
+
+const getRunSeverityWeight = (run: IntegrityAuditRun): number =>
+  run.blockingErrorCount * 5 + run.repairableErrorCount * 3 + run.warningCount * 2 + run.unresolvedIssueCount;
+
+const classifyTrendDirection = (runs: IntegrityAuditRun[]): IntegrityTrendDirection => {
+  if (runs.length < 2) {
+    return 'Stable';
+  }
+  const latestScore = getRunSeverityWeight(runs[0]);
+  const oldestScore = getRunSeverityWeight(runs[runs.length - 1]);
+  const delta = latestScore - oldestScore;
+  if (delta <= -1) {
+    return 'Improving';
+  }
+  if (delta >= 1) {
+    return 'Deteriorating';
+  }
+  return 'Stable';
+};
+
+const getTrendWindowRuns = (runs: IntegrityAuditRun[], window: IntegrityTrendWindow): IntegrityAuditRun[] => {
+  if (window === 'latest-5') {
+    return runs.slice(0, 5);
+  }
+  if (window === 'latest-10') {
+    return runs.slice(0, 10);
+  }
+  return runs;
 };
 
 const isIsoDateLike = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
@@ -2071,6 +2201,320 @@ export function useTripStore() {
     };
   }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
 
+  const integrityHealthScore = useMemo(() => {
+    const latestRun = integrityAuditRuns[0];
+    if (!latestRun) {
+      return 100;
+    }
+    /**
+     * Deterministic health score formula (metadata only):
+     * score = 100
+     *   - 25 * blocking errors
+     *   - 12 * repairable errors
+     *   - 4  * warnings
+     *   - 2  * unresolved issues
+     * Final score is clamped to [0, 100].
+     */
+    const penalty =
+      latestRun.blockingErrorCount * 25 +
+      latestRun.repairableErrorCount * 12 +
+      latestRun.warningCount * 4 +
+      latestRun.unresolvedIssueCount * 2;
+    return Math.max(0, Math.min(100, 100 - penalty));
+  }, [integrityAuditRuns]);
+
+  const integrityHealthSummary = useMemo(() => {
+    const latestRun = integrityAuditRuns[0];
+    if (!latestRun) {
+      return 'Integrity Healthy';
+    }
+    if (latestRun.blockingErrorCount > 0 || integrityHealthScore < 45) {
+      return 'Critical Attention Required';
+    }
+    if (latestRun.repairableErrorCount > 0 || integrityHealthScore < 70) {
+      return 'Repairs Recommended';
+    }
+    if (latestRun.warningCount > 0 || integrityHealthScore < 90) {
+      return 'Minor Issues Detected';
+    }
+    return 'Integrity Healthy';
+  }, [integrityAuditRuns, integrityHealthScore]);
+
+  const integrityTrendSummaries = useMemo((): Record<IntegrityTrendWindow, IntegrityTrendSummary> => {
+    const buildSummary = (window: IntegrityTrendWindow): IntegrityTrendSummary => {
+      const windowRuns = getTrendWindowRuns(integrityAuditRuns, window);
+      return {
+        window,
+        sampleSize: windowRuns.length,
+        direction: classifyTrendDirection(windowRuns),
+        averageIssueCount: roundToTwo(average(windowRuns.map((run) => run.totalIssueCount))),
+        averageBlockingErrorCount: roundToTwo(average(windowRuns.map((run) => run.blockingErrorCount))),
+        averageRepairableErrorCount: roundToTwo(average(windowRuns.map((run) => run.repairableErrorCount))),
+        averageWarningCount: roundToTwo(average(windowRuns.map((run) => run.warningCount))),
+      };
+    };
+    return {
+      'latest-5': buildSummary('latest-5'),
+      'latest-10': buildSummary('latest-10'),
+      'all-retained': buildSummary('all-retained'),
+    };
+  }, [integrityAuditRuns]);
+
+  const integrityAuditStatistics = useMemo<IntegrityAuditStatistics>(() => {
+    if (integrityAuditRuns.length === 0) {
+      return {
+        totalAuditRuns: 0,
+        firstAuditAt: null,
+        latestAuditAt: null,
+        averageDurationMs: 0,
+        fastestDurationMs: 0,
+        slowestDurationMs: 0,
+        averageIssueCount: 0,
+        highestIssueCount: 0,
+        lowestIssueCount: 0,
+      };
+    }
+    const durations = integrityAuditRuns.map((run) => run.durationMs);
+    const issueCounts = integrityAuditRuns.map((run) => run.totalIssueCount);
+    return {
+      totalAuditRuns: integrityAuditRuns.length,
+      firstAuditAt: integrityAuditRuns[integrityAuditRuns.length - 1]?.generatedAt ?? null,
+      latestAuditAt: integrityAuditRuns[0]?.generatedAt ?? null,
+      averageDurationMs: roundToTwo(average(durations)),
+      fastestDurationMs: Math.min(...durations),
+      slowestDurationMs: Math.max(...durations),
+      averageIssueCount: roundToTwo(average(issueCounts)),
+      highestIssueCount: Math.max(...issueCounts),
+      lowestIssueCount: Math.min(...issueCounts),
+    };
+  }, [integrityAuditRuns]);
+
+  const integritySeverityTotals = useMemo<IntegritySeverityTotals>(
+    () => ({
+      warningCount: integrityAuditRuns.reduce((sum, run) => sum + run.warningCount, 0),
+      repairableErrorCount: integrityAuditRuns.reduce((sum, run) => sum + run.repairableErrorCount, 0),
+      blockingErrorCount: integrityAuditRuns.reduce((sum, run) => sum + run.blockingErrorCount, 0),
+    }),
+    [integrityAuditRuns],
+  );
+
+  const integrityStreakSummary = useMemo<IntegrityStreakSummary>(() => {
+    if (integrityAuditRuns.length < 2) {
+      return {
+        currentImprovementStreak: 0,
+        longestImprovementStreak: 0,
+        currentRegressionStreak: 0,
+        currentStableStreak: 0,
+      };
+    }
+    const transitions = integrityAuditRuns.slice(0, -1).map((run, index) => {
+      const olderRun = integrityAuditRuns[index + 1];
+      const delta = getRunSeverityWeight(run) - getRunSeverityWeight(olderRun);
+      if (delta < 0) {
+        return 'improving' as const;
+      }
+      if (delta > 0) {
+        return 'regression' as const;
+      }
+      return 'stable' as const;
+    });
+    const countPrefix = (value: (typeof transitions)[number]) => {
+      let count = 0;
+      for (const transition of transitions) {
+        if (transition !== value) {
+          break;
+        }
+        count += 1;
+      }
+      return count;
+    };
+    const longest = (value: (typeof transitions)[number]) => {
+      let longestCount = 0;
+      let currentCount = 0;
+      for (const transition of transitions) {
+        if (transition === value) {
+          currentCount += 1;
+          longestCount = Math.max(longestCount, currentCount);
+        } else {
+          currentCount = 0;
+        }
+      }
+      return longestCount;
+    };
+    return {
+      currentImprovementStreak: countPrefix('improving'),
+      longestImprovementStreak: longest('improving'),
+      currentRegressionStreak: countPrefix('regression'),
+      currentStableStreak: countPrefix('stable'),
+    };
+  }, [integrityAuditRuns]);
+
+  const integrityStorageUsage = useMemo<IntegrityStorageUsageSummary>(() => {
+    const tripStateRaw = safeReadStorageValue(LOCAL_STORAGE_KEY) ?? '';
+    const snapshotStateRaw = safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY) ?? '';
+    const integrityHistoryRaw = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY) ?? '';
+    let totalUsedBytes = 0;
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (!key) {
+        continue;
+      }
+      const value = window.localStorage.getItem(key) ?? '';
+      totalUsedBytes += bytesInString(key) + bytesInString(value);
+    }
+    const estimatedRemainingBytes = Math.max(0, DEFAULT_LOCAL_STORAGE_CAPACITY_BYTES - totalUsedBytes);
+    const usedRatio = totalUsedBytes / DEFAULT_LOCAL_STORAGE_CAPACITY_BYTES;
+    const warningLevel: IntegrityStorageWarningLevel =
+      usedRatio >= 0.92 ? 'Critical' : usedRatio >= 0.8 ? 'Warning' : 'Informational';
+    return {
+      totalUsedBytes,
+      estimatedRemainingBytes,
+      integrityHistoryBytes: bytesInString(integrityHistoryRaw),
+      snapshotHistoryBytes: bytesInString(snapshotStateRaw),
+      tripStateBytes: bytesInString(tripStateRaw),
+      warningLevel,
+    };
+  }, [integrityAuditRuns, snapshots, history.present]);
+
+  const integrityHistoryValidation = useMemo<IntegrityHistoryValidationSummary>(() => {
+    const rawRuns = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY);
+    const rawBaseline = safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+    const duplicateRunIds = new Set<string>();
+    const invalidTimestampRunIds: string[] = [];
+    const malformedFingerprintRunIds: string[] = [];
+    let malformedRunCount = 0;
+    let unsupportedVersion = false;
+    let missingMetadata = false;
+    const validRuns: IntegrityAuditRun[] = [];
+    if (rawRuns) {
+      try {
+        const parsed: unknown = JSON.parse(rawRuns);
+        if (!Array.isArray(parsed)) {
+          malformedRunCount += 1;
+        } else {
+          const seenIds = new Set<string>();
+          parsed.forEach((entry) => {
+            if (!isIntegrityAuditRun(entry)) {
+              malformedRunCount += 1;
+              return;
+            }
+            if (!isValidTimestamp(entry.generatedAt)) {
+              invalidTimestampRunIds.push(entry.id);
+            }
+            if (!entry.issueFingerprints.every(isValidIntegrityFingerprint)) {
+              malformedFingerprintRunIds.push(entry.id);
+            }
+            if (seenIds.has(entry.id)) {
+              duplicateRunIds.add(entry.id);
+            } else {
+              seenIds.add(entry.id);
+            }
+            validRuns.push(entry);
+          });
+        }
+      } catch {
+        malformedRunCount += 1;
+      }
+    }
+    if (rawBaseline) {
+      try {
+        const parsedBaseline: unknown = JSON.parse(rawBaseline);
+        if (typeof parsedBaseline !== 'string') {
+          missingMetadata = true;
+        }
+      } catch {
+        missingMetadata = true;
+      }
+    }
+    const invalidBaselineReference =
+      selectedIntegrityBaselineRunId !== null && !validRuns.some((run) => run.id === selectedIntegrityBaselineRunId);
+    if (integrityAuditRuns.some((run) => run.snapshotHistoryVersion !== SNAPSHOT_HISTORY_VERSION)) {
+      unsupportedVersion = true;
+    }
+    const status: IntegrityHistoryValidationSummary['status'] =
+      malformedRunCount > 0 || unsupportedVersion
+        ? 'Critical'
+        : duplicateRunIds.size > 0 ||
+            invalidTimestampRunIds.length > 0 ||
+            malformedFingerprintRunIds.length > 0 ||
+            invalidBaselineReference ||
+            missingMetadata
+          ? 'Attention Required'
+          : 'Healthy';
+    return {
+      duplicateRunIds: [...duplicateRunIds],
+      malformedRunCount,
+      invalidTimestampRunIds,
+      malformedFingerprintRunIds,
+      invalidBaselineReference,
+      unsupportedVersion,
+      missingMetadata,
+      status,
+    };
+  }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
+
+  const integrityHistoryCompactionPreview = useMemo<IntegrityHistoryCompactionPreview>(() => {
+    const rawRuns = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY);
+    const candidates: IntegrityAuditRun[] = [];
+    let malformedRunsRemoved = 0;
+    let invalidTimestampRunsRemoved = 0;
+    let malformedFingerprintRunsRemoved = 0;
+    if (rawRuns) {
+      try {
+        const parsed: unknown = JSON.parse(rawRuns);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((entry) => {
+            if (!isIntegrityAuditRun(entry)) {
+              malformedRunsRemoved += 1;
+              return;
+            }
+            if (!isValidTimestamp(entry.generatedAt)) {
+              invalidTimestampRunsRemoved += 1;
+              return;
+            }
+            if (!entry.issueFingerprints.every(isValidIntegrityFingerprint)) {
+              malformedFingerprintRunsRemoved += 1;
+              return;
+            }
+            candidates.push(entry);
+          });
+        } else {
+          malformedRunsRemoved += 1;
+        }
+      } catch {
+        malformedRunsRemoved += 1;
+      }
+    }
+    const ordered = sortIntegrityHistoryRuns(candidates);
+    const seenIds = new Set<string>();
+    const deduped: IntegrityAuditRun[] = [];
+    let duplicateRunsRemoved = 0;
+    for (const run of ordered) {
+      if (seenIds.has(run.id)) {
+        duplicateRunsRemoved += 1;
+        continue;
+      }
+      seenIds.add(run.id);
+      deduped.push(run);
+    }
+    const trimmed = trimIntegrityHistoryRuns(deduped);
+    const runsTrimmedByRetention = Math.max(0, deduped.length - trimmed.length);
+    const resultingBaselineRunId =
+      selectedIntegrityBaselineRunId && trimmed.some((run) => run.id === selectedIntegrityBaselineRunId)
+        ? selectedIntegrityBaselineRunId
+        : null;
+    return {
+      duplicateRunsRemoved,
+      malformedRunsRemoved,
+      invalidTimestampRunsRemoved,
+      malformedFingerprintRunsRemoved,
+      runsTrimmedByRetention,
+      baselineCleared: selectedIntegrityBaselineRunId !== null && resultingBaselineRunId === null,
+      resultingRunCount: trimmed.length,
+      resultingBaselineRunId,
+    };
+  }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
+
   const toIntegrityHistoryJson = (): string => {
     const payload: IntegrityHistoryBackup = {
       schema: 'travel-buddy-integrity-history',
@@ -2130,10 +2574,31 @@ export function useTripStore() {
       throw new Error(`Integrity history version ${historyVersion} is not supported by this app.`);
     }
     const exportedAt = ensureString(parsedRecord.exportedAt, 'Integrity history export timestamp is missing.');
+    if (!isValidTimestamp(exportedAt)) {
+      throw new Error('Integrity history export timestamp is invalid.');
+    }
+    if (!Object.prototype.hasOwnProperty.call(parsedRecord, 'selectedBaselineRunId')) {
+      throw new Error('Integrity history baseline field is required.');
+    }
+    if (!(typeof parsedRecord.selectedBaselineRunId === 'string' || parsedRecord.selectedBaselineRunId === null)) {
+      throw new Error('Integrity history baseline field must be a string or null.');
+    }
     if (!Array.isArray(parsedRecord.runs)) {
       throw new Error('Integrity history runs array is missing.');
     }
-    const runs = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(parsedRecord.runs.filter(isIntegrityAuditRun)));
+    const runs = trimIntegrityHistoryRuns(
+      sortIntegrityHistoryRuns(
+        parsedRecord.runs.filter((run): run is IntegrityAuditRun => {
+          if (!isIntegrityAuditRun(run)) {
+            return false;
+          }
+          return isValidTimestamp(run.generatedAt) && run.issueFingerprints.every(isValidIntegrityFingerprint);
+        }),
+      ),
+    );
+    if (runs.length !== parsedRecord.runs.length) {
+      throw new Error('Integrity history backup contains malformed run metadata or fingerprints.');
+    }
     const baselineCandidate =
       typeof parsedRecord.selectedBaselineRunId === 'string' ? parsedRecord.selectedBaselineRunId : null;
     const baselineRunId = baselineCandidate && runs.some((run) => run.id === baselineCandidate) ? baselineCandidate : null;
@@ -2177,6 +2642,70 @@ export function useTripStore() {
   const clearIntegrityHistory = () => {
     setIntegrityAuditRuns([]);
     setSelectedIntegrityBaselineRunId(null);
+  };
+
+  const compactIntegrityHistory = (): IntegrityHistoryCompactionPreview => {
+    const rawRuns = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY);
+    const candidates: IntegrityAuditRun[] = [];
+    let malformedRunsRemoved = 0;
+    let invalidTimestampRunsRemoved = 0;
+    let malformedFingerprintRunsRemoved = 0;
+    if (rawRuns) {
+      try {
+        const parsed: unknown = JSON.parse(rawRuns);
+        if (Array.isArray(parsed)) {
+          parsed.forEach((entry) => {
+            if (!isIntegrityAuditRun(entry)) {
+              malformedRunsRemoved += 1;
+              return;
+            }
+            if (!isValidTimestamp(entry.generatedAt)) {
+              invalidTimestampRunsRemoved += 1;
+              return;
+            }
+            if (!entry.issueFingerprints.every(isValidIntegrityFingerprint)) {
+              malformedFingerprintRunsRemoved += 1;
+              return;
+            }
+            candidates.push(entry);
+          });
+        } else {
+          malformedRunsRemoved += 1;
+        }
+      } catch {
+        malformedRunsRemoved += 1;
+      }
+    }
+    const ordered = sortIntegrityHistoryRuns(candidates);
+    const seenIds = new Set<string>();
+    const deduped: IntegrityAuditRun[] = [];
+    let duplicateRunsRemoved = 0;
+    for (const run of ordered) {
+      if (seenIds.has(run.id)) {
+        duplicateRunsRemoved += 1;
+        continue;
+      }
+      seenIds.add(run.id);
+      deduped.push(run);
+    }
+    const trimmed = trimIntegrityHistoryRuns(deduped);
+    const runsTrimmedByRetention = Math.max(0, deduped.length - trimmed.length);
+    const resultingBaselineRunId =
+      selectedIntegrityBaselineRunId && trimmed.some((run) => run.id === selectedIntegrityBaselineRunId)
+        ? selectedIntegrityBaselineRunId
+        : null;
+    setIntegrityAuditRuns(trimmed);
+    setSelectedIntegrityBaselineRunId(resultingBaselineRunId);
+    return {
+      duplicateRunsRemoved,
+      malformedRunsRemoved,
+      invalidTimestampRunsRemoved,
+      malformedFingerprintRunsRemoved,
+      runsTrimmedByRetention,
+      baselineCleared: selectedIntegrityBaselineRunId !== null && resultingBaselineRunId === null,
+      resultingRunCount: trimmed.length,
+      resultingBaselineRunId,
+    };
   };
 
   const appendInternalRepairBackup = (target: StorageTarget, rawValue: string) => {
@@ -2554,6 +3083,15 @@ export function useTripStore() {
     integrityAuditRuns,
     selectedIntegrityBaselineRunId,
     latestVsBaselineChangeSummary,
+    integrityHealthScore,
+    integrityHealthSummary,
+    integrityTrendSummaries,
+    integrityAuditStatistics,
+    integritySeverityTotals,
+    integrityStreakSummary,
+    integrityStorageUsage,
+    integrityHistoryValidation,
+    integrityHistoryCompactionPreview,
     runIntegrityAudit,
     applyIntegrityRepairs,
     clearIntegrityAudit,
@@ -2567,6 +3105,7 @@ export function useTripStore() {
     clearIntegrityBaselineRun,
     deleteIntegrityRun,
     clearIntegrityHistory,
+    compactIntegrityHistory,
     storageHealth,
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,

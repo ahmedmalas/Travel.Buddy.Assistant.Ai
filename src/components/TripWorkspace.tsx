@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   useTripStore,
   type BackupSnapshot,
+  type IntegrityTrendWindow,
   type IntegrityHistoryImportPreview,
   type ImportPreview,
   type SnapshotCleanupMode,
@@ -263,6 +264,15 @@ export function TripWorkspace() {
     integrityAuditRuns,
     selectedIntegrityBaselineRunId,
     latestVsBaselineChangeSummary,
+    integrityHealthScore,
+    integrityHealthSummary,
+    integrityTrendSummaries,
+    integrityAuditStatistics,
+    integritySeverityTotals,
+    integrityStreakSummary,
+    integrityStorageUsage,
+    integrityHistoryValidation,
+    integrityHistoryCompactionPreview,
     runIntegrityAudit,
     applyIntegrityRepairs,
     clearIntegrityAudit,
@@ -276,6 +286,7 @@ export function TripWorkspace() {
     clearIntegrityBaselineRun,
     deleteIntegrityRun,
     clearIntegrityHistory,
+    compactIntegrityHistory,
     storageHealth,
     storageKeys,
   } = useTripStore();
@@ -313,6 +324,8 @@ export function TripWorkspace() {
     fileName: string;
   } | null>(null);
   const [pendingClearAuditHistory, setPendingClearAuditHistory] = useState(false);
+  const [selectedIntegrityTrendWindow, setSelectedIntegrityTrendWindow] = useState<IntegrityTrendWindow>('latest-5');
+  const [pendingCompactionConfirmation, setPendingCompactionConfirmation] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const auditHistoryInputRef = useRef<HTMLInputElement>(null);
@@ -334,6 +347,7 @@ export function TripWorkspace() {
     () => [...new Set(snapshots.map((snapshot) => snapshot.applicationVersion))],
     [snapshots],
   );
+  const selectedIntegrityTrendSummary = integrityTrendSummaries[selectedIntegrityTrendWindow];
   const filteredSnapshots = useMemo(() => {
     const query = snapshotSearchQuery.trim().toLowerCase();
     const searchMatched = snapshots.filter((snapshot) => {
@@ -815,6 +829,15 @@ export function TripWorkspace() {
   const handleDeleteIntegrityRun = (runId: string) => {
     deleteIntegrityRun(runId);
     setFeedback({ kind: 'success', message: 'Audit run deleted.' });
+  };
+
+  const handleConfirmIntegrityHistoryCompaction = () => {
+    const result = compactIntegrityHistory();
+    setPendingCompactionConfirmation(false);
+    setFeedback({
+      kind: 'success',
+      message: `Compaction complete. Removed duplicates:${result.duplicateRunsRemoved}, malformed:${result.malformedRunsRemoved}, invalid timestamps:${result.invalidTimestampRunsRemoved}, malformed fingerprints:${result.malformedFingerprintRunsRemoved}, retention trims:${result.runsTrimmedByRetention}.`,
+    });
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -1792,6 +1815,134 @@ export function TripWorkspace() {
                   <button
                     type="button"
                     onClick={() => setPendingClearAuditHistory(false)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Integrity Statistics</p>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <label className="flex items-center gap-2 text-slate-300">
+                  <span>Trend window</span>
+                  <select
+                    value={selectedIntegrityTrendWindow}
+                    onChange={(event) => setSelectedIntegrityTrendWindow(event.target.value as IntegrityTrendWindow)}
+                    className="rounded-full border border-white/20 bg-transparent px-2 py-1 text-xs text-slate-100"
+                  >
+                    <option value="latest-5" className="bg-slate-900">
+                      Latest 5
+                    </option>
+                    <option value="latest-10" className="bg-slate-900">
+                      Latest 10
+                    </option>
+                    <option value="all-retained" className="bg-slate-900">
+                      All retained
+                    </option>
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setPendingCompactionConfirmation(true)}
+                  className="rounded-full border border-amber-300/40 px-3 py-1 text-xs text-amber-100"
+                >
+                  Compact History
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-4">
+              <p>Health score: {integrityHealthScore}/100</p>
+              <p>Health summary: {integrityHealthSummary}</p>
+              <p>Trend direction: {selectedIntegrityTrendSummary.direction}</p>
+              <p>Trend sample size: {selectedIntegrityTrendSummary.sampleSize}</p>
+              <p>Avg issues: {selectedIntegrityTrendSummary.averageIssueCount}</p>
+              <p>Avg blocking: {selectedIntegrityTrendSummary.averageBlockingErrorCount}</p>
+              <p>Avg repairable: {selectedIntegrityTrendSummary.averageRepairableErrorCount}</p>
+              <p>Avg warnings: {selectedIntegrityTrendSummary.averageWarningCount}</p>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-4">
+              <p>Total runs: {integrityAuditStatistics.totalAuditRuns}</p>
+              <p>First audit: {integrityAuditStatistics.firstAuditAt ? formatSnapshotDate(integrityAuditStatistics.firstAuditAt) : 'N/A'}</p>
+              <p>Latest audit: {integrityAuditStatistics.latestAuditAt ? formatSnapshotDate(integrityAuditStatistics.latestAuditAt) : 'N/A'}</p>
+              <p>Avg duration: {integrityAuditStatistics.averageDurationMs} ms</p>
+              <p>Fastest duration: {integrityAuditStatistics.fastestDurationMs} ms</p>
+              <p>Slowest duration: {integrityAuditStatistics.slowestDurationMs} ms</p>
+              <p>Avg issues: {integrityAuditStatistics.averageIssueCount}</p>
+              <p>
+                Issue range: {integrityAuditStatistics.lowestIssueCount} - {integrityAuditStatistics.highestIssueCount}
+              </p>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-4">
+              <p>Severity totals (W): {integritySeverityTotals.warningCount}</p>
+              <p>Severity totals (R): {integritySeverityTotals.repairableErrorCount}</p>
+              <p>Severity totals (B): {integritySeverityTotals.blockingErrorCount}</p>
+              <p>Current improvement streak: {integrityStreakSummary.currentImprovementStreak}</p>
+              <p>Longest improvement streak: {integrityStreakSummary.longestImprovementStreak}</p>
+              <p>Current regression streak: {integrityStreakSummary.currentRegressionStreak}</p>
+              <p>Current stable streak: {integrityStreakSummary.currentStableStreak}</p>
+            </div>
+
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-4">
+              <p>Total localStorage used: {integrityStorageUsage.totalUsedBytes} B</p>
+              <p>Estimated remaining: {integrityStorageUsage.estimatedRemainingBytes} B</p>
+              <p>Integrity-history size: {integrityStorageUsage.integrityHistoryBytes} B</p>
+              <p>Snapshot-history size: {integrityStorageUsage.snapshotHistoryBytes} B</p>
+              <p>Trip-state size: {integrityStorageUsage.tripStateBytes} B</p>
+              <p>Storage warning: {integrityStorageUsage.warningLevel}</p>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+              <p className="font-medium text-slate-100">History validation: {integrityHistoryValidation.status}</p>
+              <div className="mt-2 grid gap-1 md:grid-cols-2">
+                <p>Duplicate run IDs: {integrityHistoryValidation.duplicateRunIds.length}</p>
+                <p>Malformed runs: {integrityHistoryValidation.malformedRunCount}</p>
+                <p>Invalid timestamps: {integrityHistoryValidation.invalidTimestampRunIds.length}</p>
+                <p>Malformed fingerprints: {integrityHistoryValidation.malformedFingerprintRunIds.length}</p>
+                <p>Invalid baseline reference: {integrityHistoryValidation.invalidBaselineReference ? 'Yes' : 'No'}</p>
+                <p>Unsupported version metadata: {integrityHistoryValidation.unsupportedVersion ? 'Yes' : 'No'}</p>
+                <p>Missing metadata: {integrityHistoryValidation.missingMetadata ? 'Yes' : 'No'}</p>
+              </div>
+            </div>
+
+            <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+              <p className="font-medium text-slate-100">Compaction preview</p>
+              <div className="mt-2 grid gap-1 md:grid-cols-2">
+                <p>Duplicate runs removed: {integrityHistoryCompactionPreview.duplicateRunsRemoved}</p>
+                <p>Malformed runs removed: {integrityHistoryCompactionPreview.malformedRunsRemoved}</p>
+                <p>Invalid timestamps removed: {integrityHistoryCompactionPreview.invalidTimestampRunsRemoved}</p>
+                <p>Malformed fingerprints removed: {integrityHistoryCompactionPreview.malformedFingerprintRunsRemoved}</p>
+                <p>Retention trims: {integrityHistoryCompactionPreview.runsTrimmedByRetention}</p>
+                <p>Baseline cleared: {integrityHistoryCompactionPreview.baselineCleared ? 'Yes' : 'No'}</p>
+                <p>Resulting run count: {integrityHistoryCompactionPreview.resultingRunCount}</p>
+              </div>
+            </div>
+
+            {pendingCompactionConfirmation ? (
+              <div className="mt-3 rounded-lg border border-amber-300/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+                <p className="font-medium">Apply manual history compaction?</p>
+                <p className="mt-1">
+                  This action removes malformed and duplicate audit runs, normalizes ordering, and enforces latest-20
+                  retention. It never changes trip or snapshot data.
+                </p>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConfirmIntegrityHistoryCompaction}
+                    className="rounded-full border border-amber-300/50 px-3 py-1 text-xs text-amber-100"
+                  >
+                    Confirm compaction
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingCompactionConfirmation(false)}
                     className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
                   >
                     Cancel
