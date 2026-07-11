@@ -6,6 +6,11 @@ export type TravelSection = {
 
 export const travelSections: TravelSection[] = [
   {
+    title: 'Trip Command Centre',
+    eyebrow: 'Operate',
+    description: 'Run every planning stream from one active trip source of truth.',
+  },
+  {
     title: 'Itinerary Builder',
     eyebrow: 'Plan',
     description: 'Create structured day-by-day travel plans from one intelligent workspace.',
@@ -14,6 +19,16 @@ export const travelSections: TravelSection[] = [
     title: 'Destination Discovery',
     eyebrow: 'Discover',
     description: 'Compare destinations, neighbourhoods, seasons, travel styles, and local highlights.',
+  },
+  {
+    title: 'Destination Workspace',
+    eyebrow: 'Command',
+    description: 'Save places with reminders, notes, priorities, and map-ready structure for each destination.',
+  },
+  {
+    title: 'Travel Vault',
+    eyebrow: 'Secure',
+    description: 'Organise trip-critical documents, tags, and searchable records in one vault.',
   },
   {
     title: 'Budget Intelligence',
