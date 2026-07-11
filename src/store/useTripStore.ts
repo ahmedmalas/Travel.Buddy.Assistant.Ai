@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import packageMetadata from '../../package.json';
+import {
+  average,
+  calculateIntegrityHealthScoreFromCounts,
+  classifyTrendDirection,
+  getRunSeverityWeight,
+  getTrendWindowRuns,
+  roundToTwo,
+} from './integrityCalculations';
 
 export type TripStop = {
   id: string;
@@ -1072,58 +1080,6 @@ const isValidIntegrityFingerprint = (value: string): boolean => {
     return false;
   }
   return severity === 'warning' || severity === 'repairable-error' || severity === 'blocking-error';
-};
-
-const average = (values: number[]): number => {
-  if (values.length === 0) {
-    return 0;
-  }
-  return values.reduce((sum, value) => sum + value, 0) / values.length;
-};
-
-const roundToTwo = (value: number): number => Math.round(value * 100) / 100;
-
-const getRunSeverityWeight = (run: IntegrityAuditRun): number =>
-  run.blockingErrorCount * 5 + run.repairableErrorCount * 3 + run.warningCount * 2 + run.unresolvedIssueCount;
-
-const classifyTrendDirection = (runs: IntegrityAuditRun[]): IntegrityTrendDirection => {
-  if (runs.length < 2) {
-    return 'Stable';
-  }
-  const latestScore = getRunSeverityWeight(runs[0]);
-  const oldestScore = getRunSeverityWeight(runs[runs.length - 1]);
-  const delta = latestScore - oldestScore;
-  if (delta <= -1) {
-    return 'Improving';
-  }
-  if (delta >= 1) {
-    return 'Deteriorating';
-  }
-  return 'Stable';
-};
-
-const getTrendWindowRuns = (runs: IntegrityAuditRun[], window: IntegrityTrendWindow): IntegrityAuditRun[] => {
-  if (window === 'latest-5') {
-    return runs.slice(0, 5);
-  }
-  if (window === 'latest-10') {
-    return runs.slice(0, 10);
-  }
-  return runs;
-};
-
-const calculateIntegrityHealthScoreFromCounts = (counts: {
-  warningCount: number;
-  repairableErrorCount: number;
-  blockingErrorCount: number;
-  unresolvedIssueCount: number;
-}): number => {
-  const penalty =
-    counts.blockingErrorCount * 25 +
-    counts.repairableErrorCount * 12 +
-    counts.warningCount * 4 +
-    counts.unresolvedIssueCount * 2;
-  return Math.max(0, Math.min(100, 100 - penalty));
 };
 
 const createDefaultRuntimeMetricStats = (): IntegrityRuntimeMetricStats => ({
