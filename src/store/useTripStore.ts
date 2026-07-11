@@ -985,18 +985,30 @@ const isIntegrityAuditRun = (value: unknown): value is IntegrityAuditRun => {
   );
 };
 
-const parsePersistedIntegrityHistoryRuns = (rawValue: string | null): IntegrityAuditRun[] => {
+type IntegrityHistoryHydrationResult = {
+  runs: IntegrityAuditRun[];
+  parseStatus: 'valid' | 'missing' | 'corrupted';
+};
+
+const parsePersistedIntegrityHistoryRuns = (rawValue: string | null): IntegrityHistoryHydrationResult => {
   if (!rawValue) {
-    return [];
+    return { runs: [], parseStatus: 'missing' };
   }
   try {
     const parsed: unknown = JSON.parse(rawValue);
     if (!Array.isArray(parsed)) {
-      return [];
+      return { runs: [], parseStatus: 'corrupted' };
     }
-    return trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(parsed.filter(isIntegrityAuditRun)));
+    const validRuns = parsed.filter(isIntegrityAuditRun);
+    if (validRuns.length !== parsed.length) {
+      return { runs: [], parseStatus: 'corrupted' };
+    }
+    return {
+      runs: trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(validRuns)),
+      parseStatus: 'valid',
+    };
   } catch {
-    return [];
+    return { runs: [], parseStatus: 'corrupted' };
   }
 };
 
@@ -1157,12 +1169,12 @@ const timeToMinutes = (value: string): number | null => {
 export function useTripStore() {
   const initialActiveTripStorage = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
   const initialSnapshotStorage = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
-  const initialIntegrityHistoryRuns = parsePersistedIntegrityHistoryRuns(
+  const initialIntegrityHistoryHydration = parsePersistedIntegrityHistoryRuns(
     safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY),
   );
   const initialIntegrityBaselineRunId = parsePersistedIntegrityBaselineId(
     safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY),
-    initialIntegrityHistoryRuns,
+    initialIntegrityHistoryHydration.runs,
   );
   const [history, setHistory] = useState<HistoryState>(() => ({
     past: [],
@@ -1188,7 +1200,12 @@ export function useTripStore() {
   const [snapshotHistoryPersistenceError, setSnapshotHistoryPersistenceError] = useState<PersistenceErrorInfo | null>(null);
   const [lastSuccessfulPersistenceAt, setLastSuccessfulPersistenceAt] = useState<string | null>(null);
   const [integrityAuditReport, setIntegrityAuditReport] = useState<IntegrityAuditReport | null>(null);
-  const [integrityAuditRuns, setIntegrityAuditRuns] = useState<IntegrityAuditRun[]>(initialIntegrityHistoryRuns);
+  const [integrityAuditRuns, setIntegrityAuditRuns] = useState<IntegrityAuditRun[]>(
+    initialIntegrityHistoryHydration.runs,
+  );
+  const [integrityHistoryParseStatus, setIntegrityHistoryParseStatus] = useState<
+    IntegrityHistoryHydrationResult['parseStatus']
+  >(initialIntegrityHistoryHydration.parseStatus);
   const [selectedIntegrityBaselineRunId, setSelectedIntegrityBaselineRunId] = useState<string | null>(
     initialIntegrityBaselineRunId,
   );
@@ -1296,8 +1313,11 @@ export function useTripStore() {
     persistSnapshotHistory(snapshots);
   }, [snapshots]);
   useEffect(() => {
+    if (integrityHistoryParseStatus === 'corrupted') {
+      return;
+    }
     window.localStorage.setItem(INTEGRITY_HISTORY_STORAGE_KEY, JSON.stringify(integrityAuditRuns));
-  }, [integrityAuditRuns]);
+  }, [integrityAuditRuns, integrityHistoryParseStatus]);
   useEffect(() => {
     if (selectedIntegrityBaselineRunId) {
       window.localStorage.setItem(
@@ -2271,6 +2291,7 @@ export function useTripStore() {
       runType,
     };
     recordIntegrityRuntimeMetric('integrity-audit', runMetadata.durationMs);
+    setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns((currentRuns) =>
       trimIntegrityHistoryRuns(sortIntegrityHistoryRuns([runMetadata, ...currentRuns])),
     );
@@ -2994,6 +3015,7 @@ export function useTripStore() {
 
   const importIntegrityHistory = (runs: IntegrityAuditRun[], baselineRunId: string | null) => {
     const normalizedRuns = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(runs));
+    setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns(normalizedRuns);
     setSelectedIntegrityBaselineRunId(
       baselineRunId && normalizedRuns.some((run) => run.id === baselineRunId) ? baselineRunId : null,
@@ -3012,11 +3034,13 @@ export function useTripStore() {
   };
 
   const deleteIntegrityRun = (runId: string) => {
+    setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns((currentRuns) => currentRuns.filter((run) => run.id !== runId));
     setSelectedIntegrityBaselineRunId((currentBaseline) => (currentBaseline === runId ? null : currentBaseline));
   };
 
   const clearIntegrityHistory = () => {
+    setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns([]);
     setSelectedIntegrityBaselineRunId(null);
   };
@@ -3071,6 +3095,7 @@ export function useTripStore() {
       selectedIntegrityBaselineRunId && trimmed.some((run) => run.id === selectedIntegrityBaselineRunId)
         ? selectedIntegrityBaselineRunId
         : null;
+    setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns(trimmed);
     setSelectedIntegrityBaselineRunId(resultingBaselineRunId);
     return {
