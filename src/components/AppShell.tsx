@@ -1,7 +1,12 @@
 import { SectionCard } from './SectionCard';
 import { travelSections } from '../data/sections';
+import type { ReactNode } from 'react';
 
-export function AppShell() {
+type AppShellProps = {
+  children?: ReactNode;
+};
+
+export function AppShell({ children }: AppShellProps) {
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <header className="mx-auto flex max-w-7xl items-center justify-between px-6 py-6">
@@ -46,6 +51,8 @@ export function AppShell() {
             <SectionCard key={section.title} section={section} />
           ))}
         </section>
+
+        {children ? <section className="border-t border-white/10">{children}</section> : null}
       </main>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm text-slate-500">
