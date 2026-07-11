@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import {
   useTripStore,
   type BackupSnapshot,
@@ -273,7 +273,14 @@ export function TripWorkspace() {
     integrityStorageUsage,
     integrityHistoryValidation,
     integrityHistoryCompactionPreview,
+    integrityOverview,
+    integrityDiagnosticsSummary,
+    integrityRuntimeMetrics,
+    lastIntegrityRepairSimulation,
+    lastIntegritySimulationAccuracy,
     runIntegrityAudit,
+    getRepairImpactAnalysis,
+    simulateSelectedRepairs,
     applyIntegrityRepairs,
     clearIntegrityAudit,
     toIntegrityAuditJson,
@@ -287,6 +294,11 @@ export function TripWorkspace() {
     deleteIntegrityRun,
     clearIntegrityHistory,
     compactIntegrityHistory,
+    runIntegrityDiagnostics,
+    integrityDiagnosticsFileName,
+    toIntegrityDiagnosticsJson,
+    integrityReportFileName,
+    toIntegrityReportJson,
     storageHealth,
     storageKeys,
   } = useTripStore();
@@ -326,6 +338,18 @@ export function TripWorkspace() {
   const [pendingClearAuditHistory, setPendingClearAuditHistory] = useState(false);
   const [selectedIntegrityTrendWindow, setSelectedIntegrityTrendWindow] = useState<IntegrityTrendWindow>('latest-5');
   const [pendingCompactionConfirmation, setPendingCompactionConfirmation] = useState(false);
+  const [repairImpactSummary, setRepairImpactSummary] = useState<ReturnType<typeof getRepairImpactAnalysis> | null>(null);
+  const [simulationSummary, setSimulationSummary] = useState<ReturnType<typeof simulateSelectedRepairs> | null>(null);
+  const [pendingIntegrityReportPreview, setPendingIntegrityReportPreview] = useState<{
+    generatedAt: string;
+    healthScore: number;
+    trend: string;
+    issueTotal: number;
+    baselineStatus: string;
+    fingerprintCount: number;
+    reportJson: string;
+    fileName: string;
+  } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const snapshotHistoryInputRef = useRef<HTMLInputElement>(null);
   const auditHistoryInputRef = useRef<HTMLInputElement>(null);
@@ -348,6 +372,14 @@ export function TripWorkspace() {
     [snapshots],
   );
   const selectedIntegrityTrendSummary = integrityTrendSummaries[selectedIntegrityTrendWindow];
+
+  useEffect(() => {
+    if (!integrityAuditReport) {
+      setRepairImpactSummary(null);
+      return;
+    }
+    setRepairImpactSummary(getRepairImpactAnalysis(selectedRepairIssueIds));
+  }, [integrityAuditReport, selectedRepairIssueIds]);
   const filteredSnapshots = useMemo(() => {
     const query = snapshotSearchQuery.trim().toLowerCase();
     const searchMatched = snapshots.filter((snapshot) => {
@@ -769,6 +801,21 @@ export function TripWorkspace() {
     setFeedback({ kind: result.ok ? 'success' : 'error', message: result.message });
   };
 
+  const handleSimulateSelectedRepairs = () => {
+    const result = simulateSelectedRepairs(selectedRepairIssueIds);
+    setSimulationSummary(result);
+    if (!result) {
+      setFeedback({ kind: 'error', message: 'Run integrity audit before simulation.' });
+      return;
+    }
+    setFeedback({
+      kind: 'success',
+      message: `Simulation complete in ${result.simulationDurationMs}ms. Predicted issue delta: ${
+        result.issueTotalsAfter - result.issueTotalsBefore
+      }.`,
+    });
+  };
+
   const handleExportIntegrityHistory = () => {
     try {
       const historyJson = toIntegrityHistoryJson();
@@ -838,6 +885,68 @@ export function TripWorkspace() {
       kind: 'success',
       message: `Compaction complete. Removed duplicates:${result.duplicateRunsRemoved}, malformed:${result.malformedRunsRemoved}, invalid timestamps:${result.invalidTimestampRunsRemoved}, malformed fingerprints:${result.malformedFingerprintRunsRemoved}, retention trims:${result.runsTrimmedByRetention}.`,
     });
+  };
+
+  const handleRunIntegrityDiagnostics = () => {
+    const result = runIntegrityDiagnostics();
+    setFeedback({ kind: 'success', message: `Integrity diagnostics completed: ${result.overallStatus}.` });
+  };
+
+  const handleExportIntegrityDiagnostics = () => {
+    try {
+      const diagnosticsJson = toIntegrityDiagnosticsJson();
+      const fileName = integrityDiagnosticsFileName();
+      exportJsonFile(diagnosticsJson, fileName);
+      setFeedback({ kind: 'success', message: `Integrity diagnostics exported: ${fileName}` });
+    } catch (error) {
+      setFeedback({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Integrity diagnostics export failed.',
+      });
+    }
+  };
+
+  const handlePrepareIntegrityReport = () => {
+    try {
+      const reportJson = toIntegrityReportJson({
+        selectedTrendWindow: selectedIntegrityTrendWindow,
+        repairImpactSummary: repairImpactSummary ?? null,
+        simulationSummary: simulationSummary ?? null,
+      });
+      const parsed = JSON.parse(reportJson) as {
+        generatedAt: string;
+        currentHealthScore: number;
+        trendSummary?: { direction?: string };
+        latestAuditMetadata?: { totalIssueCount?: number } | null;
+        baselineMetadata?: { id?: string } | null;
+        latestVsBaselineSummary?: { unchangedFingerprints?: string[]; introducedFingerprints?: string[]; resolvedFingerprints?: string[] } | null;
+      };
+      const fingerprintCount =
+        (parsed.latestVsBaselineSummary?.unchangedFingerprints?.length ?? 0) +
+        (parsed.latestVsBaselineSummary?.introducedFingerprints?.length ?? 0) +
+        (parsed.latestVsBaselineSummary?.resolvedFingerprints?.length ?? 0);
+      setPendingIntegrityReportPreview({
+        generatedAt: parsed.generatedAt,
+        healthScore: parsed.currentHealthScore,
+        trend: parsed.trendSummary?.direction ?? 'Stable',
+        issueTotal: parsed.latestAuditMetadata?.totalIssueCount ?? 0,
+        baselineStatus: parsed.baselineMetadata?.id ? 'Selected' : 'None',
+        fingerprintCount,
+        reportJson,
+        fileName: integrityReportFileName(),
+      });
+    } catch (error) {
+      setFeedback({ kind: 'error', message: error instanceof Error ? error.message : 'Integrity report preview failed.' });
+    }
+  };
+
+  const handleConfirmIntegrityReportExport = () => {
+    if (!pendingIntegrityReportPreview) {
+      return;
+    }
+    exportJsonFile(pendingIntegrityReportPreview.reportJson, pendingIntegrityReportPreview.fileName);
+    setFeedback({ kind: 'success', message: `Integrity report exported: ${pendingIntegrityReportPreview.fileName}` });
+    setPendingIntegrityReportPreview(null);
   };
 
   const handleToggleComparisonSnapshot = (snapshotId: string) => {
@@ -1474,6 +1583,80 @@ export function TripWorkspace() {
 
           <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Integrity Overview</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handlePrepareIntegrityReport}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Export Integrity Report
+                </button>
+                <button
+                  type="button"
+                  onClick={handleRunIntegrityDiagnostics}
+                  className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                >
+                  Run Diagnostics
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportIntegrityDiagnostics}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Export Diagnostics
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-4">
+              <p>Health score: {integrityOverview.currentHealthScore}</p>
+              <p>Health summary: {integrityOverview.healthSummary}</p>
+              <p>Trend window: {selectedIntegrityTrendWindow}</p>
+              <p>Latest audit: {integrityOverview.latestAuditTimestamp ? formatSnapshotDate(integrityOverview.latestAuditTimestamp) : 'N/A'}</p>
+              <p>Latest run type: {integrityOverview.latestRunType ?? 'N/A'}</p>
+              <p>Selected baseline: {integrityOverview.selectedBaselineRunId ? `${integrityOverview.selectedBaselineRunId.slice(0, 8)}...` : 'None'}</p>
+              <p>Latest-vs-baseline: {integrityOverview.latestVsBaselineResult ?? 'N/A'}</p>
+              <p>Unresolved issues: {integrityOverview.unresolvedIssueCount}</p>
+              <p>Blocking issues: {integrityOverview.blockingIssueCount}</p>
+              <p>Repairable issues: {integrityOverview.repairableIssueCount}</p>
+              <p>Storage warning: {integrityOverview.storageWarning}</p>
+              <p>History validation: {integrityOverview.historyValidationStatus}</p>
+              <p>Diagnostics status: {integrityOverview.diagnosticsStatus}</p>
+            </div>
+            {pendingIntegrityReportPreview ? (
+              <div className="mt-3 rounded-lg border border-sky-300/30 bg-sky-500/10 p-3 text-xs text-slate-200">
+                <p className="font-medium text-sky-200">Integrity report preview</p>
+                <div className="mt-2 grid gap-1 md:grid-cols-2">
+                  <p>Generated at: {pendingIntegrityReportPreview.generatedAt}</p>
+                  <p>Health score: {pendingIntegrityReportPreview.healthScore}</p>
+                  <p>Trend: {pendingIntegrityReportPreview.trend}</p>
+                  <p>Issue total: {pendingIntegrityReportPreview.issueTotal}</p>
+                  <p>Baseline status: {pendingIntegrityReportPreview.baselineStatus}</p>
+                  <p>Fingerprint count: {pendingIntegrityReportPreview.fingerprintCount}</p>
+                  <p>Privacy exclusions: Confirmed metadata-only export.</p>
+                </div>
+                <div className="mt-3 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={handleConfirmIntegrityReportExport}
+                    className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
+                  >
+                    Confirm report export
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPendingIntegrityReportPreview(null)}
+                    className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Integrity Audit</p>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -1564,6 +1747,13 @@ export function TripWorkspace() {
                   <div className="mt-2 flex flex-wrap gap-2">
                     <button
                       type="button"
+                      onClick={handleSimulateSelectedRepairs}
+                      className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                    >
+                      Simulate Selected Repairs
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => setPendingRepairConfirmation(true)}
                       className="rounded-full border border-emerald-300/40 px-3 py-1 text-xs text-emerald-100"
                     >
@@ -1592,6 +1782,81 @@ export function TripWorkspace() {
                     </button>
                   </div>
                 </div>
+
+                {repairImpactSummary ? (
+                  <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-500/5 p-3 text-xs text-slate-200">
+                    <p className="font-medium text-sky-200">Repair impact analysis</p>
+                    <div className="mt-2 grid gap-1 md:grid-cols-2">
+                      <p>Selected repairs: {repairImpactSummary.selectedRepairCount}</p>
+                      <p>Estimated issues resolved: {repairImpactSummary.estimatedIssuesResolved}</p>
+                      <p>Estimated issues remaining: {repairImpactSummary.estimatedIssuesRemaining}</p>
+                      <p>Estimated warnings remaining: {repairImpactSummary.estimatedWarningsRemaining}</p>
+                      <p>Estimated repairable remaining: {repairImpactSummary.estimatedRepairableErrorsRemaining}</p>
+                      <p>Estimated blocking remaining: {repairImpactSummary.estimatedBlockingErrorsRemaining}</p>
+                      <p>Active-trip records affected: {repairImpactSummary.activeTripRecordsAffected}</p>
+                      <p>Snapshot-history records affected: {repairImpactSummary.snapshotHistoryRecordsAffected}</p>
+                      <p>Unresolved selected issues: {repairImpactSummary.unresolvedSelectedIssueCount}</p>
+                      <p>Non-repairable remaining: {repairImpactSummary.nonRepairableIssuesRemaining}</p>
+                      <p>Health before: {repairImpactSummary.expectedHealthScoreBefore}</p>
+                      <p>
+                        Health after: {repairImpactSummary.expectedHealthScoreAfter} (delta {repairImpactSummary.expectedHealthScoreDelta})
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {simulationSummary ? (
+                  <div className="mt-3 rounded-lg border border-sky-300/20 bg-sky-500/5 p-3 text-xs text-slate-200">
+                    <p className="font-medium text-sky-200">Repair simulation summary</p>
+                    <div className="mt-2 grid gap-1 md:grid-cols-2">
+                      <p>Issue totals: {simulationSummary.issueTotalsBefore} → {simulationSummary.issueTotalsAfter}</p>
+                      <p>
+                        Severity totals (W/R/B): {simulationSummary.warningCountBefore}/{simulationSummary.repairableErrorCountBefore}/
+                        {simulationSummary.blockingErrorCountBefore} → {simulationSummary.warningCountAfter}/
+                        {simulationSummary.repairableErrorCountAfter}/{simulationSummary.blockingErrorCountAfter}
+                      </p>
+                      <p>Expected health delta: {simulationSummary.expectedHealthScoreDelta}</p>
+                      <p>Expected latest-vs-baseline: {simulationSummary.expectedLatestVsBaselineResult}</p>
+                      <p>Simulation duration: {simulationSummary.simulationDurationMs} ms</p>
+                    </div>
+                    <div className="mt-2 grid gap-2 md:grid-cols-4">
+                      <p className="break-all">Introduced: {simulationSummary.introducedFingerprints.join(', ') || 'None'}</p>
+                      <p className="break-all">Resolved: {simulationSummary.resolvedFingerprints.join(', ') || 'None'}</p>
+                      <p className="break-all">Unchanged: {simulationSummary.unchangedFingerprints.join(', ') || 'None'}</p>
+                      <p className="break-all">Unresolved: {simulationSummary.unresolvedFingerprints.join(', ') || 'None'}</p>
+                    </div>
+                  </div>
+                ) : null}
+
+                {lastIntegritySimulationAccuracy ? (
+                  <div className="mt-3 rounded-lg border border-emerald-300/20 bg-emerald-500/5 p-3 text-xs text-slate-200">
+                    <p className="font-medium text-emerald-200">
+                      Simulation accuracy: {lastIntegritySimulationAccuracy.status}
+                    </p>
+                    <div className="mt-2 grid gap-1 md:grid-cols-2">
+                      <p>
+                        Predicted vs actual issues: {lastIntegritySimulationAccuracy.predictedIssueTotal} /{' '}
+                        {lastIntegritySimulationAccuracy.actualIssueTotal}
+                      </p>
+                      <p>
+                        Predicted vs actual warnings: {lastIntegritySimulationAccuracy.predictedWarningCount} /{' '}
+                        {lastIntegritySimulationAccuracy.actualWarningCount}
+                      </p>
+                      <p>
+                        Predicted vs actual repairable: {lastIntegritySimulationAccuracy.predictedRepairableErrorCount} /{' '}
+                        {lastIntegritySimulationAccuracy.actualRepairableErrorCount}
+                      </p>
+                      <p>
+                        Predicted vs actual blocking: {lastIntegritySimulationAccuracy.predictedBlockingErrorCount} /{' '}
+                        {lastIntegritySimulationAccuracy.actualBlockingErrorCount}
+                      </p>
+                      <p>
+                        Predicted vs actual resolved fingerprints: {lastIntegritySimulationAccuracy.predictedResolvedFingerprintCount} /{' '}
+                        {lastIntegritySimulationAccuracy.actualResolvedFingerprintCount}
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
 
                 {pendingRepairConfirmation ? (
                   <div className="mt-3 rounded-lg border border-emerald-300/30 bg-emerald-500/10 p-3 text-xs text-emerald-200">
@@ -1950,6 +2215,67 @@ export function TripWorkspace() {
                 </div>
               </div>
             ) : null}
+          </div>
+
+          <div className="mt-4 rounded-xl border border-white/10 bg-slate-950/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs uppercase tracking-[0.25em] text-sky-300">Integrity Diagnostics</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={handleRunIntegrityDiagnostics}
+                  className="rounded-full border border-sky-300/40 px-3 py-1 text-xs text-sky-100"
+                >
+                  Run Diagnostics
+                </button>
+                <button
+                  type="button"
+                  onClick={handleExportIntegrityDiagnostics}
+                  className="rounded-full border border-white/20 px-3 py-1 text-xs text-slate-100"
+                >
+                  Export Diagnostics
+                </button>
+              </div>
+            </div>
+            <div className="mt-3 text-xs text-slate-200">
+              <p>Overall status: {integrityDiagnosticsSummary?.overallStatus ?? 'Not Run'}</p>
+              <p>Generated at: {integrityDiagnosticsSummary?.generatedAt ? formatSnapshotDate(integrityDiagnosticsSummary.generatedAt) : 'N/A'}</p>
+            </div>
+            <div className="mt-3 grid gap-2 text-xs text-slate-200 md:grid-cols-2 xl:grid-cols-5">
+              <p>
+                Audit-history consistency:{' '}
+                {integrityDiagnosticsSummary?.auditHistoryConsistency.status ?? 'Not Run'}
+              </p>
+              <p>Baseline consistency: {integrityDiagnosticsSummary?.baselineConsistency.status ?? 'Not Run'}</p>
+              <p>Fingerprint consistency: {integrityDiagnosticsSummary?.fingerprintConsistency.status ?? 'Not Run'}</p>
+              <p>Analytics consistency: {integrityDiagnosticsSummary?.analyticsConsistency.status ?? 'Not Run'}</p>
+              <p>Storage consistency: {integrityDiagnosticsSummary?.storageConsistency.status ?? 'Not Run'}</p>
+            </div>
+            <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+              <p className="font-medium text-slate-100">Runtime performance</p>
+              <div className="mt-2 grid gap-1 md:grid-cols-2">
+                {Object.entries(integrityRuntimeMetrics).length === 0 ? (
+                  <p>No runtime timings collected yet.</p>
+                ) : (
+                  Object.entries(integrityRuntimeMetrics).map(([metric, stats]) => (
+                    <p key={metric}>
+                      {metric}: latest {stats?.latestDurationMs ?? 0}ms, fastest {stats?.fastestDurationMs ?? 0}ms, slowest{' '}
+                      {stats?.slowestDurationMs ?? 0}ms, avg {stats?.averageDurationMs ?? 0}ms ({stats?.sampleCount ?? 0} samples)
+                    </p>
+                  ))
+                )}
+              </div>
+            </div>
+            <div className="mt-3 rounded-lg border border-white/10 p-3 text-xs text-slate-200">
+              <p className="font-medium text-slate-100">Recommended manual actions</p>
+              <div className="mt-2 space-y-1">
+                {integrityDiagnosticsSummary?.recommendedManualActions.length ? (
+                  integrityDiagnosticsSummary.recommendedManualActions.map((action) => <p key={action}>- {action}</p>)
+                ) : (
+                  <p>No recommendations.</p>
+                )}
+              </div>
+            </div>
           </div>
 
           <div className="mt-3 grid gap-2 md:grid-cols-2 xl:grid-cols-6">

@@ -262,6 +262,110 @@ export type IntegrityHistoryCompactionPreview = {
   resultingBaselineRunId: string | null;
 };
 
+export type IntegrityRepairImpactSummary = {
+  selectedRepairCount: number;
+  unresolvedSelectedIssueCount: number;
+  estimatedIssuesResolved: number;
+  estimatedIssuesRemaining: number;
+  estimatedWarningsRemaining: number;
+  estimatedRepairableErrorsRemaining: number;
+  estimatedBlockingErrorsRemaining: number;
+  activeTripRecordsAffected: number;
+  snapshotHistoryRecordsAffected: number;
+  nonRepairableIssuesRemaining: number;
+  expectedHealthScoreBefore: number;
+  expectedHealthScoreAfter: number;
+  expectedHealthScoreDelta: number;
+};
+
+export type IntegrityRepairSimulationSummary = {
+  selectedRepairIssueIds: string[];
+  issueTotalsBefore: number;
+  issueTotalsAfter: number;
+  warningCountBefore: number;
+  warningCountAfter: number;
+  repairableErrorCountBefore: number;
+  repairableErrorCountAfter: number;
+  blockingErrorCountBefore: number;
+  blockingErrorCountAfter: number;
+  introducedFingerprints: string[];
+  resolvedFingerprints: string[];
+  unchangedFingerprints: string[];
+  unresolvedFingerprints: string[];
+  expectedHealthScoreBefore: number;
+  expectedHealthScoreAfter: number;
+  expectedHealthScoreDelta: number;
+  expectedLatestVsBaselineResult: 'Improved' | 'Unchanged' | 'Regressed';
+  simulationDurationMs: number;
+};
+
+export type IntegritySimulationAccuracySummary = {
+  predictedIssueTotal: number;
+  actualIssueTotal: number;
+  predictedWarningCount: number;
+  actualWarningCount: number;
+  predictedRepairableErrorCount: number;
+  actualRepairableErrorCount: number;
+  predictedBlockingErrorCount: number;
+  actualBlockingErrorCount: number;
+  predictedResolvedFingerprintCount: number;
+  actualResolvedFingerprintCount: number;
+  status: 'Exact Match' | 'Partial Match' | 'Diverged';
+};
+
+export type IntegrityRuntimeMetricName =
+  | 'integrity-audit'
+  | 'history-comparison'
+  | 'analytics-calculation'
+  | 'storage-validation'
+  | 'compaction-preview'
+  | 'repair-impact-analysis'
+  | 'repair-simulation'
+  | 'diagnostics-run'
+  | 'integrity-report-generation';
+
+export type IntegrityRuntimeMetricStats = {
+  latestDurationMs: number;
+  fastestDurationMs: number;
+  slowestDurationMs: number;
+  averageDurationMs: number;
+  sampleCount: number;
+};
+
+export type IntegrityDiagnosticsCategoryStatus = 'Pass' | 'Warning' | 'Fail';
+
+export type IntegrityDiagnosticsCategoryResult = {
+  status: IntegrityDiagnosticsCategoryStatus;
+  findings: string[];
+};
+
+export type IntegrityDiagnosticsSummary = {
+  overallStatus: 'Healthy' | 'Attention Required' | 'Critical';
+  auditHistoryConsistency: IntegrityDiagnosticsCategoryResult;
+  baselineConsistency: IntegrityDiagnosticsCategoryResult;
+  fingerprintConsistency: IntegrityDiagnosticsCategoryResult;
+  analyticsConsistency: IntegrityDiagnosticsCategoryResult;
+  storageConsistency: IntegrityDiagnosticsCategoryResult;
+  runtimeTimings: Partial<Record<IntegrityRuntimeMetricName, IntegrityRuntimeMetricStats>>;
+  recommendedManualActions: string[];
+  generatedAt: string;
+};
+
+export type IntegrityOverviewSummary = {
+  currentHealthScore: number;
+  healthSummary: string;
+  latestAuditTimestamp: string | null;
+  latestRunType: IntegrityAuditRunType | null;
+  selectedBaselineRunId: string | null;
+  latestVsBaselineResult: 'Improved' | 'Unchanged' | 'Regressed' | null;
+  unresolvedIssueCount: number;
+  blockingIssueCount: number;
+  repairableIssueCount: number;
+  storageWarning: IntegrityStorageWarningLevel;
+  historyValidationStatus: IntegrityHistoryValidationSummary['status'];
+  diagnosticsStatus: IntegrityDiagnosticsSummary['overallStatus'] | 'Not Run';
+};
+
 type SnapshotHistoryBackup = {
   schema: 'travel-buddy-snapshot-history';
   snapshotHistoryVersion: number;
@@ -996,6 +1100,28 @@ const getTrendWindowRuns = (runs: IntegrityAuditRun[], window: IntegrityTrendWin
   return runs;
 };
 
+const calculateIntegrityHealthScoreFromCounts = (counts: {
+  warningCount: number;
+  repairableErrorCount: number;
+  blockingErrorCount: number;
+  unresolvedIssueCount: number;
+}): number => {
+  const penalty =
+    counts.blockingErrorCount * 25 +
+    counts.repairableErrorCount * 12 +
+    counts.warningCount * 4 +
+    counts.unresolvedIssueCount * 2;
+  return Math.max(0, Math.min(100, 100 - penalty));
+};
+
+const createDefaultRuntimeMetricStats = (): IntegrityRuntimeMetricStats => ({
+  latestDurationMs: 0,
+  fastestDurationMs: 0,
+  slowestDurationMs: 0,
+  averageDurationMs: 0,
+  sampleCount: 0,
+});
+
 const isIsoDateLike = (value: string): boolean => /^\d{4}-\d{2}-\d{2}$/.test(value);
 
 const normalizeDateUnambiguous = (value: string): string | null => {
@@ -1066,9 +1192,42 @@ export function useTripStore() {
   const [selectedIntegrityBaselineRunId, setSelectedIntegrityBaselineRunId] = useState<string | null>(
     initialIntegrityBaselineRunId,
   );
+  const [lastIntegrityRepairSimulation, setLastIntegrityRepairSimulation] = useState<IntegrityRepairSimulationSummary | null>(
+    null,
+  );
+  const [lastIntegritySimulationAccuracy, setLastIntegritySimulationAccuracy] =
+    useState<IntegritySimulationAccuracySummary | null>(null);
+  const [integrityDiagnosticsSummary, setIntegrityDiagnosticsSummary] = useState<IntegrityDiagnosticsSummary | null>(null);
+  const [integrityRuntimeMetrics, setIntegrityRuntimeMetrics] = useState<
+    Partial<Record<IntegrityRuntimeMetricName, IntegrityRuntimeMetricStats>>
+  >({});
   const integrityRepairOperationsRef = useRef<
     Map<string, (context: { activeTripDraft: Record<string, unknown> | null; snapshotDraft: unknown[] | null }) => void>
   >(new Map());
+
+  const recordIntegrityRuntimeMetric = (metric: IntegrityRuntimeMetricName, durationMs: number) => {
+    const normalizedDuration = Math.max(0, Math.round(durationMs));
+    setIntegrityRuntimeMetrics((currentMetrics) => {
+      const current = currentMetrics[metric] ?? createDefaultRuntimeMetricStats();
+      const nextSampleCount = current.sampleCount + 1;
+      const nextFastest = current.sampleCount === 0 ? normalizedDuration : Math.min(current.fastestDurationMs, normalizedDuration);
+      const nextSlowest = current.sampleCount === 0 ? normalizedDuration : Math.max(current.slowestDurationMs, normalizedDuration);
+      const nextAverage =
+        current.sampleCount === 0
+          ? normalizedDuration
+          : roundToTwo((current.averageDurationMs * current.sampleCount + normalizedDuration) / nextSampleCount);
+      return {
+        ...currentMetrics,
+        [metric]: {
+          latestDurationMs: normalizedDuration,
+          fastestDurationMs: nextFastest,
+          slowestDurationMs: nextSlowest,
+          averageDurationMs: nextAverage,
+          sampleCount: nextSampleCount,
+        },
+      };
+    });
+  };
 
   const persistActiveTrip = (trip: TripData): boolean => {
     if (activeTripCorruption) {
@@ -2111,6 +2270,7 @@ export function useTripStore() {
       issueFingerprints: issueList.map(buildIntegrityIssueFingerprint),
       runType,
     };
+    recordIntegrityRuntimeMetric('integrity-audit', runMetadata.durationMs);
     setIntegrityAuditRuns((currentRuns) =>
       trimIntegrityHistoryRuns(sortIntegrityHistoryRuns([runMetadata, ...currentRuns])),
     );
@@ -2201,6 +2361,186 @@ export function useTripStore() {
     };
   }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
 
+  const getRepairImpactAnalysis = (selectedIssueIds: string[]): IntegrityRepairImpactSummary | null => {
+    const startedAt = performance.now();
+    if (!integrityAuditReport) {
+      return null;
+    }
+    const selectedSet = new Set(selectedIssueIds);
+    const selectedIssues = integrityAuditReport.issues.filter((issue) => selectedSet.has(issue.id));
+    const selectedRepairableIssues = selectedIssues.filter((issue) => issue.automaticRepairAvailable);
+    const unresolvedSelectedIssueCount = selectedIssues.length - selectedRepairableIssues.length;
+    const estimatedIssuesResolved = selectedRepairableIssues.length;
+    const estimatedIssuesRemaining = Math.max(0, integrityAuditReport.issueCount - estimatedIssuesResolved);
+    const estimatedWarningsRemaining = Math.max(
+      0,
+      integrityAuditReport.warningCount -
+        selectedRepairableIssues.filter((issue) => issue.severity === 'warning').length,
+    );
+    const estimatedRepairableErrorsRemaining = Math.max(
+      0,
+      integrityAuditReport.repairableErrorCount -
+        selectedRepairableIssues.filter((issue) => issue.severity === 'repairable-error').length,
+    );
+    const estimatedBlockingErrorsRemaining = Math.max(
+      0,
+      integrityAuditReport.blockingErrorCount -
+        selectedRepairableIssues.filter((issue) => issue.severity === 'blocking-error').length,
+    );
+    const activeTripRecordsAffected = new Set(
+      selectedRepairableIssues
+        .filter((issue) => issue.target === 'active-trip')
+        .map((issue) => issue.affectedRecord),
+    ).size;
+    const snapshotHistoryRecordsAffected = new Set(
+      selectedRepairableIssues
+        .filter((issue) => issue.target === 'snapshot-history')
+        .map((issue) => issue.affectedRecord),
+    ).size;
+    const nonRepairableIssuesRemaining = integrityAuditReport.issues.filter((issue) => !issue.automaticRepairAvailable).length;
+    const expectedHealthScoreBefore = calculateIntegrityHealthScoreFromCounts({
+      warningCount: integrityAuditReport.warningCount,
+      repairableErrorCount: integrityAuditReport.repairableErrorCount,
+      blockingErrorCount: integrityAuditReport.blockingErrorCount,
+      unresolvedIssueCount: integrityAuditReport.issueCount,
+    });
+    const expectedHealthScoreAfter = calculateIntegrityHealthScoreFromCounts({
+      warningCount: estimatedWarningsRemaining,
+      repairableErrorCount: estimatedRepairableErrorsRemaining,
+      blockingErrorCount: estimatedBlockingErrorsRemaining,
+      unresolvedIssueCount: estimatedIssuesRemaining,
+    });
+    const result: IntegrityRepairImpactSummary = {
+      selectedRepairCount: selectedIssues.length,
+      unresolvedSelectedIssueCount,
+      estimatedIssuesResolved,
+      estimatedIssuesRemaining,
+      estimatedWarningsRemaining,
+      estimatedRepairableErrorsRemaining,
+      estimatedBlockingErrorsRemaining,
+      activeTripRecordsAffected,
+      snapshotHistoryRecordsAffected,
+      nonRepairableIssuesRemaining,
+      expectedHealthScoreBefore,
+      expectedHealthScoreAfter,
+      expectedHealthScoreDelta: expectedHealthScoreAfter - expectedHealthScoreBefore,
+    };
+    recordIntegrityRuntimeMetric('repair-impact-analysis', performance.now() - startedAt);
+    return result;
+  };
+
+  const simulateSelectedRepairs = (selectedIssueIds: string[]): IntegrityRepairSimulationSummary | null => {
+    const startedAt = performance.now();
+    if (!integrityAuditReport) {
+      return null;
+    }
+    const selectedSet = new Set(selectedIssueIds);
+    const beforeIssues = integrityAuditReport.issues;
+    const selectedRepairableIssues = beforeIssues.filter(
+      (issue) => selectedSet.has(issue.id) && issue.automaticRepairAvailable,
+    );
+
+    // Clone local storage payloads in memory and execute repair operations on the clone only.
+    const activeRawValue = safeReadStorageValue(LOCAL_STORAGE_KEY);
+    const snapshotRawValue = safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY);
+    let activeTripDraft: Record<string, unknown> | null = null;
+    let snapshotDraft: unknown[] | null = null;
+    if (activeRawValue !== null) {
+      try {
+        const parsed = JSON.parse(activeRawValue);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          activeTripDraft = structuredClone(parsed) as Record<string, unknown>;
+        }
+      } catch {
+        activeTripDraft = null;
+      }
+    }
+    if (snapshotRawValue !== null) {
+      try {
+        const parsed = JSON.parse(snapshotRawValue);
+        if (Array.isArray(parsed)) {
+          snapshotDraft = structuredClone(parsed);
+        }
+      } catch {
+        snapshotDraft = null;
+      }
+    }
+    selectedRepairableIssues.forEach((issue) => {
+      const operation = integrityRepairOperationsRef.current.get(issue.id);
+      if (operation) {
+        operation({ activeTripDraft, snapshotDraft });
+      }
+    });
+
+    const removedIssueIds = new Set(selectedRepairableIssues.map((issue) => issue.id));
+    const afterIssues = beforeIssues.filter((issue) => !removedIssueIds.has(issue.id));
+    const beforeFingerprints = new Set(beforeIssues.map(buildIntegrityIssueFingerprint));
+    const afterFingerprints = new Set(afterIssues.map(buildIntegrityIssueFingerprint));
+    const resolvedFingerprints = [...beforeFingerprints].filter((fingerprint) => !afterFingerprints.has(fingerprint));
+    const unchangedFingerprints = [...afterFingerprints].filter((fingerprint) => beforeFingerprints.has(fingerprint));
+    const introducedFingerprints = [...afterFingerprints].filter((fingerprint) => !beforeFingerprints.has(fingerprint));
+    const expectedHealthScoreBefore = calculateIntegrityHealthScoreFromCounts({
+      warningCount: integrityAuditReport.warningCount,
+      repairableErrorCount: integrityAuditReport.repairableErrorCount,
+      blockingErrorCount: integrityAuditReport.blockingErrorCount,
+      unresolvedIssueCount: integrityAuditReport.issueCount,
+    });
+    const warningCountAfter = afterIssues.filter((issue) => issue.severity === 'warning').length;
+    const repairableErrorCountAfter = afterIssues.filter((issue) => issue.severity === 'repairable-error').length;
+    const blockingErrorCountAfter = afterIssues.filter((issue) => issue.severity === 'blocking-error').length;
+    const expectedHealthScoreAfter = calculateIntegrityHealthScoreFromCounts({
+      warningCount: warningCountAfter,
+      repairableErrorCount: repairableErrorCountAfter,
+      blockingErrorCount: blockingErrorCountAfter,
+      unresolvedIssueCount: afterIssues.length,
+    });
+    const baselineRun = selectedIntegrityBaselineRunId
+      ? integrityAuditRuns.find((run) => run.id === selectedIntegrityBaselineRunId)
+      : null;
+    const baselineTotals = baselineRun
+      ? {
+          totalIssueCount: baselineRun.totalIssueCount,
+          warningCount: baselineRun.warningCount,
+          repairableErrorCount: baselineRun.repairableErrorCount,
+          blockingErrorCount: baselineRun.blockingErrorCount,
+        }
+      : {
+          totalIssueCount: integrityAuditReport.issueCount,
+          warningCount: integrityAuditReport.warningCount,
+          repairableErrorCount: integrityAuditReport.repairableErrorCount,
+          blockingErrorCount: integrityAuditReport.blockingErrorCount,
+        };
+    const expectedLatestVsBaselineResult = classifyIntegrityHistoryChange({
+      totalIssueDelta: afterIssues.length - baselineTotals.totalIssueCount,
+      warningDelta: warningCountAfter - baselineTotals.warningCount,
+      repairableErrorDelta: repairableErrorCountAfter - baselineTotals.repairableErrorCount,
+      blockingErrorDelta: blockingErrorCountAfter - baselineTotals.blockingErrorCount,
+    });
+    const simulation: IntegrityRepairSimulationSummary = {
+      selectedRepairIssueIds: selectedIssueIds,
+      issueTotalsBefore: integrityAuditReport.issueCount,
+      issueTotalsAfter: afterIssues.length,
+      warningCountBefore: integrityAuditReport.warningCount,
+      warningCountAfter,
+      repairableErrorCountBefore: integrityAuditReport.repairableErrorCount,
+      repairableErrorCountAfter,
+      blockingErrorCountBefore: integrityAuditReport.blockingErrorCount,
+      blockingErrorCountAfter,
+      introducedFingerprints,
+      resolvedFingerprints,
+      unchangedFingerprints,
+      unresolvedFingerprints: [...afterFingerprints],
+      expectedHealthScoreBefore,
+      expectedHealthScoreAfter,
+      expectedHealthScoreDelta: expectedHealthScoreAfter - expectedHealthScoreBefore,
+      expectedLatestVsBaselineResult,
+      simulationDurationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    };
+    setLastIntegrityRepairSimulation(simulation);
+    recordIntegrityRuntimeMetric('repair-simulation', performance.now() - startedAt);
+    return simulation;
+  };
+
   const integrityHealthScore = useMemo(() => {
     const latestRun = integrityAuditRuns[0];
     if (!latestRun) {
@@ -2215,12 +2555,12 @@ export function useTripStore() {
      *   - 2  * unresolved issues
      * Final score is clamped to [0, 100].
      */
-    const penalty =
-      latestRun.blockingErrorCount * 25 +
-      latestRun.repairableErrorCount * 12 +
-      latestRun.warningCount * 4 +
-      latestRun.unresolvedIssueCount * 2;
-    return Math.max(0, Math.min(100, 100 - penalty));
+    return calculateIntegrityHealthScoreFromCounts({
+      warningCount: latestRun.warningCount,
+      repairableErrorCount: latestRun.repairableErrorCount,
+      blockingErrorCount: latestRun.blockingErrorCount,
+      unresolvedIssueCount: latestRun.unresolvedIssueCount,
+    });
   }, [integrityAuditRuns]);
 
   const integrityHealthSummary = useMemo(() => {
@@ -2515,6 +2855,43 @@ export function useTripStore() {
     };
   }, [integrityAuditRuns, selectedIntegrityBaselineRunId]);
 
+  useEffect(() => {
+    const startedAt = performance.now();
+    void latestVsBaselineChangeSummary;
+    recordIntegrityRuntimeMetric('history-comparison', performance.now() - startedAt);
+  }, [latestVsBaselineChangeSummary]);
+
+  useEffect(() => {
+    const startedAt = performance.now();
+    void integrityHealthScore;
+    void integrityHealthSummary;
+    void integrityTrendSummaries;
+    void integrityAuditStatistics;
+    void integritySeverityTotals;
+    void integrityStreakSummary;
+    recordIntegrityRuntimeMetric('analytics-calculation', performance.now() - startedAt);
+  }, [
+    integrityHealthScore,
+    integrityHealthSummary,
+    integrityTrendSummaries,
+    integrityAuditStatistics,
+    integritySeverityTotals,
+    integrityStreakSummary,
+  ]);
+
+  useEffect(() => {
+    const startedAt = performance.now();
+    void integrityStorageUsage;
+    void integrityHistoryValidation;
+    recordIntegrityRuntimeMetric('storage-validation', performance.now() - startedAt);
+  }, [integrityStorageUsage, integrityHistoryValidation]);
+
+  useEffect(() => {
+    const startedAt = performance.now();
+    void integrityHistoryCompactionPreview;
+    recordIntegrityRuntimeMetric('compaction-preview', performance.now() - startedAt);
+  }, [integrityHistoryCompactionPreview]);
+
   const toIntegrityHistoryJson = (): string => {
     const payload: IntegrityHistoryBackup = {
       schema: 'travel-buddy-integrity-history',
@@ -2708,6 +3085,364 @@ export function useTripStore() {
     };
   };
 
+  const runIntegrityDiagnostics = (): IntegrityDiagnosticsSummary => {
+    const diagnosticsStartedAt = performance.now();
+
+    // Deterministic status rules:
+    // - Fail => category has blocking consistency risk or malformed critical metadata.
+    // - Warning => category is parseable but has non-blocking inconsistencies.
+    // - Pass => no findings.
+    // Overall status:
+    // - Critical if any category = Fail
+    // - Attention Required if no Fail and any category = Warning
+    // - Healthy otherwise
+
+    const auditHistoryFindings: string[] = [];
+    const seenRunIds = new Set<string>();
+    let hasAuditHistoryFail = false;
+    for (let index = 0; index < integrityAuditRuns.length; index += 1) {
+      const run = integrityAuditRuns[index];
+      if (seenRunIds.has(run.id)) {
+        auditHistoryFindings.push(`Duplicate run ID: ${run.id}`);
+      } else {
+        seenRunIds.add(run.id);
+      }
+      if (!isValidTimestamp(run.generatedAt)) {
+        auditHistoryFindings.push(`Invalid run timestamp: ${run.id}`);
+        hasAuditHistoryFail = true;
+      }
+      if (run.totalIssueCount < 0 || run.warningCount < 0 || run.repairableErrorCount < 0 || run.blockingErrorCount < 0) {
+        auditHistoryFindings.push(`Negative issue counts: ${run.id}`);
+        hasAuditHistoryFail = true;
+      }
+      if (
+        run.warningCount + run.repairableErrorCount + run.blockingErrorCount > run.totalIssueCount ||
+        run.repairableIssueCount > run.totalIssueCount ||
+        run.unresolvedIssueCount > run.totalIssueCount
+      ) {
+        auditHistoryFindings.push(`Issue count relationships invalid: ${run.id}`);
+      }
+      if (run.runType !== 'manual-audit' && run.runType !== 'before-repair' && run.runType !== 'after-repair') {
+        auditHistoryFindings.push(`Invalid run type: ${run.id}`);
+        hasAuditHistoryFail = true;
+      }
+      if (index > 0) {
+        const previous = integrityAuditRuns[index - 1];
+        if (new Date(previous.generatedAt).getTime() < new Date(run.generatedAt).getTime()) {
+          auditHistoryFindings.push('Run ordering is not newest-first.');
+        }
+      }
+    }
+    if (integrityAuditRuns.length > INTEGRITY_HISTORY_LIMIT) {
+      auditHistoryFindings.push(`Retention exceeded: ${integrityAuditRuns.length}/${INTEGRITY_HISTORY_LIMIT}`);
+    }
+    const auditHistoryConsistency: IntegrityDiagnosticsCategoryResult = {
+      status: hasAuditHistoryFail ? 'Fail' : auditHistoryFindings.length > 0 ? 'Warning' : 'Pass',
+      findings: auditHistoryFindings,
+    };
+
+    const baselineFindings: string[] = [];
+    if (selectedIntegrityBaselineRunId && !integrityAuditRuns.some((run) => run.id === selectedIntegrityBaselineRunId)) {
+      baselineFindings.push('Selected baseline does not exist in audit history.');
+    }
+    if (latestVsBaselineChangeSummary) {
+      const baselineRunExists = integrityAuditRuns.some((run) => run.id === latestVsBaselineChangeSummary.baselineRunId);
+      const latestRunExists = integrityAuditRuns.some((run) => run.id === latestVsBaselineChangeSummary.latestRunId);
+      if (!baselineRunExists || !latestRunExists) {
+        baselineFindings.push('Latest-vs-baseline references invalid run IDs.');
+      }
+    }
+    const baselineConsistency: IntegrityDiagnosticsCategoryResult = {
+      status: baselineFindings.length > 0 ? 'Warning' : 'Pass',
+      findings: baselineFindings,
+    };
+
+    const fingerprintFindings: string[] = [];
+    let hasFingerprintFail = false;
+    integrityAuditRuns.forEach((run) => {
+      if (!run.issueFingerprints.every(isValidIntegrityFingerprint)) {
+        fingerprintFindings.push(`Malformed fingerprint format in run ${run.id}.`);
+        hasFingerprintFail = true;
+      }
+      const uniqueFingerprints = new Set(run.issueFingerprints);
+      if (uniqueFingerprints.size !== run.issueFingerprints.length) {
+        fingerprintFindings.push(`Duplicate fingerprints in run ${run.id}.`);
+      }
+      if (run.issueFingerprints.some((fingerprint) => /(title|note|label|location|linked)/i.test(fingerprint))) {
+        fingerprintFindings.push(`Potential prohibited text token in run ${run.id} fingerprint set.`);
+      }
+    });
+    if (latestVsBaselineChangeSummary) {
+      const introduced = new Set(latestVsBaselineChangeSummary.newlyIntroducedFingerprints);
+      const resolved = new Set(latestVsBaselineChangeSummary.resolvedFingerprints);
+      const unchanged = new Set(latestVsBaselineChangeSummary.unchangedFingerprints);
+      const overlap =
+        [...introduced].some((value) => resolved.has(value) || unchanged.has(value)) ||
+        [...resolved].some((value) => unchanged.has(value));
+      if (overlap) {
+        fingerprintFindings.push('Latest-vs-baseline fingerprint sets overlap.');
+      }
+    }
+    const fingerprintConsistency: IntegrityDiagnosticsCategoryResult = {
+      status: hasFingerprintFail ? 'Fail' : fingerprintFindings.length > 0 ? 'Warning' : 'Pass',
+      findings: fingerprintFindings,
+    };
+
+    const analyticsFindings: string[] = [];
+    const recomputedHealth = (() => {
+      const latest = integrityAuditRuns[0];
+      if (!latest) {
+        return 100;
+      }
+      return calculateIntegrityHealthScoreFromCounts({
+        warningCount: latest.warningCount,
+        repairableErrorCount: latest.repairableErrorCount,
+        blockingErrorCount: latest.blockingErrorCount,
+        unresolvedIssueCount: latest.unresolvedIssueCount,
+      });
+    })();
+    if (recomputedHealth !== integrityHealthScore) {
+      analyticsFindings.push('Health score mismatch.');
+    }
+    (['latest-5', 'latest-10', 'all-retained'] as IntegrityTrendWindow[]).forEach((window) => {
+      const recomputedDirection = classifyTrendDirection(getTrendWindowRuns(integrityAuditRuns, window));
+      if (recomputedDirection !== integrityTrendSummaries[window].direction) {
+        analyticsFindings.push(`Trend direction mismatch for ${window}.`);
+      }
+    });
+    const recomputedSeverityTotals = {
+      warningCount: integrityAuditRuns.reduce((sum, run) => sum + run.warningCount, 0),
+      repairableErrorCount: integrityAuditRuns.reduce((sum, run) => sum + run.repairableErrorCount, 0),
+      blockingErrorCount: integrityAuditRuns.reduce((sum, run) => sum + run.blockingErrorCount, 0),
+    };
+    if (
+      recomputedSeverityTotals.warningCount !== integritySeverityTotals.warningCount ||
+      recomputedSeverityTotals.repairableErrorCount !== integritySeverityTotals.repairableErrorCount ||
+      recomputedSeverityTotals.blockingErrorCount !== integritySeverityTotals.blockingErrorCount
+    ) {
+      analyticsFindings.push('Severity totals mismatch.');
+    }
+    const analyticsConsistency: IntegrityDiagnosticsCategoryResult = {
+      status: analyticsFindings.length > 0 ? 'Warning' : 'Pass',
+      findings: analyticsFindings,
+    };
+
+    const storageFindings: string[] = [];
+    const rawHistory = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY);
+    const rawBaseline = safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+    if (rawHistory !== null) {
+      try {
+        const parsed = JSON.parse(rawHistory);
+        if (!Array.isArray(parsed)) {
+          storageFindings.push('Audit history storage is not an array.');
+        }
+      } catch {
+        storageFindings.push('Audit history storage is malformed JSON.');
+      }
+    }
+    if (rawBaseline !== null) {
+      try {
+        const parsed = JSON.parse(rawBaseline);
+        if (!(typeof parsed === 'string' || parsed === null)) {
+          storageFindings.push('Baseline storage has invalid type.');
+        }
+      } catch {
+        storageFindings.push('Baseline storage is malformed JSON.');
+      }
+    }
+    const reproducibleTotal =
+      integrityStorageUsage.totalUsedBytes >=
+      integrityStorageUsage.integrityHistoryBytes + integrityStorageUsage.snapshotHistoryBytes + integrityStorageUsage.tripStateBytes;
+    if (!reproducibleTotal) {
+      storageFindings.push('Storage size calculations are not reproducible.');
+    }
+    const storageConsistency: IntegrityDiagnosticsCategoryResult = {
+      status: storageFindings.some((finding) => /malformed|not an array/i.test(finding)) ? 'Fail' : storageFindings.length > 0 ? 'Warning' : 'Pass',
+      findings: storageFindings,
+    };
+
+    const categoryResults = [
+      auditHistoryConsistency.status,
+      baselineConsistency.status,
+      fingerprintConsistency.status,
+      analyticsConsistency.status,
+      storageConsistency.status,
+    ];
+    const overallStatus: IntegrityDiagnosticsSummary['overallStatus'] = categoryResults.includes('Fail')
+      ? 'Critical'
+      : categoryResults.includes('Warning')
+        ? 'Attention Required'
+        : 'Healthy';
+    const recommendedManualActions: string[] = [];
+    if (auditHistoryConsistency.status !== 'Pass') {
+      recommendedManualActions.push('Run manual history compaction and verify retention ordering.');
+    }
+    if (baselineConsistency.status !== 'Pass') {
+      recommendedManualActions.push('Re-select a valid baseline run.');
+    }
+    if (fingerprintConsistency.status !== 'Pass') {
+      recommendedManualActions.push('Re-run audit and export history for manual review.');
+    }
+    if (storageConsistency.status !== 'Pass') {
+      recommendedManualActions.push('Use Diagnostics & Recovery to inspect local storage payloads.');
+    }
+    const generatedAt = new Date().toISOString();
+    const diagnostics: IntegrityDiagnosticsSummary = {
+      overallStatus,
+      auditHistoryConsistency,
+      baselineConsistency,
+      fingerprintConsistency,
+      analyticsConsistency,
+      storageConsistency,
+      runtimeTimings: integrityRuntimeMetrics,
+      recommendedManualActions,
+      generatedAt,
+    };
+    setIntegrityDiagnosticsSummary(diagnostics);
+    recordIntegrityRuntimeMetric('diagnostics-run', performance.now() - diagnosticsStartedAt);
+    return diagnostics;
+  };
+
+  const integrityDiagnosticsFileName = (): string =>
+    `travel-buddy-integrity-diagnostics-${formatDiagnosticsTimestamp(new Date())}.json`;
+
+  const toIntegrityDiagnosticsJson = (): string => {
+    const diagnostics = integrityDiagnosticsSummary ?? runIntegrityDiagnostics();
+    const payload = JSON.stringify(
+      {
+        schema: 'travel-buddy-integrity-diagnostics',
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        overallStatus: diagnostics.overallStatus,
+        categoryResults: {
+          auditHistoryConsistency: diagnostics.auditHistoryConsistency,
+          baselineConsistency: diagnostics.baselineConsistency,
+          fingerprintConsistency: diagnostics.fingerprintConsistency,
+          analyticsConsistency: diagnostics.analyticsConsistency,
+          storageConsistency: diagnostics.storageConsistency,
+        },
+        runtimeTimings: diagnostics.runtimeTimings,
+        storageSummary: integrityStorageUsage,
+        historyValidationSummary: integrityHistoryValidation,
+        recommendedManualActions: diagnostics.recommendedManualActions,
+      },
+      null,
+      2,
+    );
+    return payload;
+  };
+
+  const integrityReportFileName = (): string =>
+    `travel-buddy-integrity-report-${formatDiagnosticsTimestamp(new Date())}.json`;
+
+  const toIntegrityReportJson = (options: {
+    selectedTrendWindow: IntegrityTrendWindow;
+    repairImpactSummary: IntegrityRepairImpactSummary | null;
+    simulationSummary: IntegrityRepairSimulationSummary | null;
+  }): string => {
+    const startedAt = performance.now();
+    const latestRun = integrityAuditRuns[0] ?? null;
+    const selectedTrendSummary = integrityTrendSummaries[options.selectedTrendWindow];
+    const baselineRun =
+      selectedIntegrityBaselineRunId !== null
+        ? integrityAuditRuns.find((run) => run.id === selectedIntegrityBaselineRunId) ?? null
+        : null;
+    const unresolvedIssueSummary = {
+      totalUnresolvedIssues: latestRun?.unresolvedIssueCount ?? 0,
+      blockingIssues: latestRun?.blockingErrorCount ?? 0,
+      repairableIssues: latestRun?.repairableErrorCount ?? 0,
+      warningIssues: latestRun?.warningCount ?? 0,
+    };
+    const diagnostics = integrityDiagnosticsSummary ?? runIntegrityDiagnostics();
+    const payload = JSON.stringify(
+      {
+        schema: 'travel-buddy-integrity-report',
+        version: 1,
+        generatedAt: new Date().toISOString(),
+        applicationVersion: APPLICATION_VERSION,
+        currentHealthScore: integrityHealthScore,
+        healthSummary: integrityHealthSummary,
+        selectedTrendWindow: options.selectedTrendWindow,
+        trendSummary: selectedTrendSummary,
+        latestAuditMetadata: latestRun
+          ? {
+              id: latestRun.id,
+              generatedAt: latestRun.generatedAt,
+              runType: latestRun.runType,
+              totalIssueCount: latestRun.totalIssueCount,
+              warningCount: latestRun.warningCount,
+              repairableErrorCount: latestRun.repairableErrorCount,
+              blockingErrorCount: latestRun.blockingErrorCount,
+              unresolvedIssueCount: latestRun.unresolvedIssueCount,
+              durationMs: latestRun.durationMs,
+            }
+          : null,
+        baselineMetadata: baselineRun
+          ? {
+              id: baselineRun.id,
+              generatedAt: baselineRun.generatedAt,
+              runType: baselineRun.runType,
+            }
+          : null,
+        latestVsBaselineSummary: latestVsBaselineChangeSummary,
+        severityDistribution: integritySeverityTotals,
+        auditStatistics: integrityAuditStatistics,
+        streakStatistics: integrityStreakSummary,
+        unresolvedIssueSummary,
+        repairImpactSummary: options.repairImpactSummary,
+        simulationSummary: options.simulationSummary,
+        simulationAccuracySummary: lastIntegritySimulationAccuracy,
+        storageSummary: integrityStorageUsage,
+        historyValidationSummary: integrityHistoryValidation,
+        diagnosticsSummary: diagnostics,
+        runtimeTimingSummary: integrityRuntimeMetrics,
+        privacyExclusions: {
+          excludedFields: [
+            'trip payloads',
+            'snapshot payloads',
+            'trip/itinerary titles',
+            'notes',
+            'labels',
+            'locations',
+            'linked-document names',
+            'user-entered free text',
+          ],
+        },
+      },
+      null,
+      2,
+    );
+    recordIntegrityRuntimeMetric('integrity-report-generation', performance.now() - startedAt);
+    return payload;
+  };
+
+  const integrityOverview = useMemo<IntegrityOverviewSummary>(() => {
+    const latestRun = integrityAuditRuns[0] ?? null;
+    return {
+      currentHealthScore: integrityHealthScore,
+      healthSummary: integrityHealthSummary,
+      latestAuditTimestamp: latestRun?.generatedAt ?? null,
+      latestRunType: latestRun?.runType ?? null,
+      selectedBaselineRunId: selectedIntegrityBaselineRunId,
+      latestVsBaselineResult: latestVsBaselineChangeSummary?.result ?? null,
+      unresolvedIssueCount: latestRun?.unresolvedIssueCount ?? 0,
+      blockingIssueCount: latestRun?.blockingErrorCount ?? 0,
+      repairableIssueCount: latestRun?.repairableErrorCount ?? 0,
+      storageWarning: integrityStorageUsage.warningLevel,
+      historyValidationStatus: integrityHistoryValidation.status,
+      diagnosticsStatus: integrityDiagnosticsSummary?.overallStatus ?? 'Not Run',
+    };
+  }, [
+    integrityAuditRuns,
+    integrityHealthScore,
+    integrityHealthSummary,
+    selectedIntegrityBaselineRunId,
+    latestVsBaselineChangeSummary,
+    integrityStorageUsage.warningLevel,
+    integrityHistoryValidation.status,
+    integrityDiagnosticsSummary,
+  ]);
+
   const appendInternalRepairBackup = (target: StorageTarget, rawValue: string) => {
     const current = safeReadStorageValue(INTEGRITY_REPAIR_BACKUP_STORAGE_KEY);
     let existing: Array<{ id: string; target: StorageTarget; createdAt: string; rawValue: string }> = [];
@@ -2835,6 +3570,42 @@ export function useTripStore() {
 
     setLastSuccessfulPersistenceAt(new Date().toISOString());
     const nextReport = runIntegrityAudit('after-repair');
+    if (lastIntegrityRepairSimulation) {
+      const selectedExpected = [...lastIntegrityRepairSimulation.selectedRepairIssueIds].sort().join(',');
+      const selectedActual = [...selectedIssueIds].sort().join(',');
+      if (selectedExpected === selectedActual) {
+        const actualResolvedFingerprintCount = (() => {
+          const beforeFingerprints = new Set(integrityAuditReport?.issues.map(buildIntegrityIssueFingerprint) ?? []);
+          const afterFingerprints = new Set(nextReport.issues.map(buildIntegrityIssueFingerprint));
+          return [...beforeFingerprints].filter((fingerprint) => !afterFingerprints.has(fingerprint)).length;
+        })();
+        const sameCounts =
+          lastIntegrityRepairSimulation.issueTotalsAfter === nextReport.issueCount &&
+          lastIntegrityRepairSimulation.warningCountAfter === nextReport.warningCount &&
+          lastIntegrityRepairSimulation.repairableErrorCountAfter === nextReport.repairableErrorCount &&
+          lastIntegrityRepairSimulation.blockingErrorCountAfter === nextReport.blockingErrorCount;
+        const predictedResolved = lastIntegrityRepairSimulation.resolvedFingerprints.length;
+        const status: IntegritySimulationAccuracySummary['status'] =
+          sameCounts && predictedResolved === actualResolvedFingerprintCount
+            ? 'Exact Match'
+            : Math.abs(lastIntegrityRepairSimulation.issueTotalsAfter - nextReport.issueCount) <= 1
+              ? 'Partial Match'
+              : 'Diverged';
+        setLastIntegritySimulationAccuracy({
+          predictedIssueTotal: lastIntegrityRepairSimulation.issueTotalsAfter,
+          actualIssueTotal: nextReport.issueCount,
+          predictedWarningCount: lastIntegrityRepairSimulation.warningCountAfter,
+          actualWarningCount: nextReport.warningCount,
+          predictedRepairableErrorCount: lastIntegrityRepairSimulation.repairableErrorCountAfter,
+          actualRepairableErrorCount: nextReport.repairableErrorCount,
+          predictedBlockingErrorCount: lastIntegrityRepairSimulation.blockingErrorCountAfter,
+          actualBlockingErrorCount: nextReport.blockingErrorCount,
+          predictedResolvedFingerprintCount: predictedResolved,
+          actualResolvedFingerprintCount,
+          status,
+        });
+      }
+    }
     return {
       ok: true,
       message: `Applied ${appliedCount} repair${appliedCount === 1 ? '' : 's'}.`,
@@ -2845,6 +3616,8 @@ export function useTripStore() {
 
   const clearIntegrityAudit = () => {
     setIntegrityAuditReport(null);
+    setLastIntegrityRepairSimulation(null);
+    setLastIntegritySimulationAccuracy(null);
     integrityRepairOperationsRef.current = new Map();
   };
 
@@ -3092,7 +3865,14 @@ export function useTripStore() {
     integrityStorageUsage,
     integrityHistoryValidation,
     integrityHistoryCompactionPreview,
+    integrityOverview,
+    integrityDiagnosticsSummary,
+    integrityRuntimeMetrics,
+    lastIntegrityRepairSimulation,
+    lastIntegritySimulationAccuracy,
     runIntegrityAudit,
+    getRepairImpactAnalysis,
+    simulateSelectedRepairs,
     applyIntegrityRepairs,
     clearIntegrityAudit,
     toIntegrityAuditJson,
@@ -3106,6 +3886,11 @@ export function useTripStore() {
     deleteIntegrityRun,
     clearIntegrityHistory,
     compactIntegrityHistory,
+    runIntegrityDiagnostics,
+    integrityDiagnosticsFileName,
+    toIntegrityDiagnosticsJson,
+    integrityReportFileName,
+    toIntegrityReportJson,
     storageHealth,
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,
