@@ -2,16 +2,18 @@
 
 Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform.
 
-## Verified baseline architecture (Slices 9–28)
+## Verified baseline architecture (Slices 9–36)
 
 - `src/main.ts` mounts the React application.
 - `src/App.tsx` renders the top-level app shell.
-- `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripWorkspace`.
-- `src/components/TripWorkspace.tsx` is the primary trip/backup/integrity UI surface.
-- `src/components/trip-workspace/comparisonUtils.ts` holds pure snapshot comparison helpers.
-- `src/store/useTripStore.ts` owns trip state, undo/redo, backup/snapshot persistence, storage health, and integrity workflows.
+- `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripPlatform`.
+- `src/components/trip-platform/` contains Slices 29–35 user-facing modules and tab navigation.
+- `src/components/TripWorkspace.tsx` remains the Slices 9–28 backup/snapshot/integrity UI (Backup & integrity tab).
+- `src/store/TripStoreContext.tsx` provides one shared `useTripStore` instance to all platform panels.
+- `src/store/tripDomain.ts` owns extended trip domain types, validation, and backup migration.
+- `src/store/platformCalculations.ts` owns deterministic budget/packing/itinerary/overview math.
+- `src/store/useTripStore.ts` owns persistence, undo/redo, backup/snapshots, integrity, and platform CRUD.
 - `src/store/integrityCalculations.ts` holds deterministic integrity scoring/trend/accuracy helpers.
-- `src/data` contains early static product/module definitions.
 - `docs` records product scope, architecture, and completed-slice verification.
 
 ## Persistence model

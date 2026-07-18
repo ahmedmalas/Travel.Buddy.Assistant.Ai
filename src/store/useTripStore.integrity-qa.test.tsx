@@ -74,12 +74,26 @@ describe('useTripStore slices 25-26 integrity QA gaps', () => {
     localStorage.setItem(
       TRIP_KEY,
       JSON.stringify({
-        tripName: '',
-        stops: [{ id: 'stop-1', title: '', day: 1, order: 1, notes: '' }],
+        tripName: 'Conflict Trip',
+        stops: [
+          { id: 'dup-stop', title: 'One', day: 1, order: 1, notes: '' },
+          { id: 'dup-stop', title: 'Two', day: 1, order: 2, notes: '' },
+        ],
       }),
     );
     const { result } = renderHook(() => useTripStore());
     act(() => {
+      // Re-inject duplicate ids after hydration persistence so audit sees repairable duplicates.
+      localStorage.setItem(
+        TRIP_KEY,
+        JSON.stringify({
+          tripName: 'Conflict Trip',
+          stops: [
+            { id: 'dup-stop', title: 'One', day: 1, order: 1, notes: '' },
+            { id: 'dup-stop', title: 'Two', day: 1, order: 2, notes: '' },
+          ],
+        }),
+      );
       result.current.runIntegrityAudit();
     });
     const repairableIds = result.current.integrityAuditReport?.repairableIssueIds ?? [];
@@ -110,7 +124,8 @@ describe('useTripStore slices 25-26 integrity QA gaps', () => {
       ),
     ).toThrow(/Negative issue counts: run-1/);
 
-    expect(localStorage.getItem(TRIP_KEY)).toBe(JSON.stringify({ tripName: 'Keep Me', stops: [] }));
+    const persistedTrip = JSON.parse(localStorage.getItem(TRIP_KEY) ?? '{}') as { tripName?: string };
+    expect(persistedTrip.tripName).toBe('Keep Me');
     expect(localStorage.getItem(SNAPSHOT_KEY)).toBe(JSON.stringify([]));
   });
 
@@ -219,15 +234,18 @@ describe('useTripStore slices 25-26 integrity QA gaps', () => {
   });
 
   it('records matching-selection accuracy after applying the simulated repair set', () => {
-    localStorage.setItem(
-      TRIP_KEY,
-      JSON.stringify({
-        tripName: '',
-        stops: [{ id: 'stop-1', title: '', day: 1, order: 1, notes: '' }],
-      }),
-    );
     const { result } = renderHook(() => useTripStore());
     act(() => {
+      localStorage.setItem(
+        TRIP_KEY,
+        JSON.stringify({
+          tripName: 'Conflict Trip',
+          stops: [
+            { id: 'dup-stop', title: 'One', day: 1, order: 1, notes: '' },
+            { id: 'dup-stop', title: 'Two', day: 1, order: 2, notes: '' },
+          ],
+        }),
+      );
       result.current.runIntegrityAudit();
     });
     const repairableIds = result.current.integrityAuditReport?.repairableIssueIds ?? [];

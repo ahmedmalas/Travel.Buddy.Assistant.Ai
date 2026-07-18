@@ -91,7 +91,9 @@ describe('useTripStore integrity-history hydration and regression coverage', () 
     });
 
     expect(() => JSON.parse(localStorage.getItem(HISTORY_KEY) ?? '')).not.toThrow();
-    expect(localStorage.getItem(TRIP_KEY)).toBe(JSON.stringify({ tripName: 'T', stops: [] }));
+    const persistedTrip = JSON.parse(localStorage.getItem(TRIP_KEY) ?? '{}') as { tripName?: string; stops?: unknown[] };
+    expect(persistedTrip.tripName).toBe('T');
+    expect(persistedTrip.stops).toEqual([]);
     expect(localStorage.getItem(SNAPSHOT_KEY)).toBe(JSON.stringify([]));
   });
 

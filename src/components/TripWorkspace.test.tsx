@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { type ReactElement } from 'react';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { TripStoreProvider } from '../store/TripStoreContext';
 import { TripWorkspace } from './TripWorkspace';
 
 const TRIP_KEY = 'travel-buddy:trip-state:v1';
+
+const renderWithStore = (ui: ReactElement) => render(<TripStoreProvider>{ui}</TripStoreProvider>);
 
 describe('TripWorkspace UI smoke coverage', () => {
   beforeEach(() => {
@@ -21,7 +24,7 @@ describe('TripWorkspace UI smoke coverage', () => {
   });
 
   it('renders existing trip and key integrity panels', () => {
-    const { container } = render(<TripWorkspace />);
+    const { container } = renderWithStore(<TripWorkspace />);
     expect(screen.getByText(/Trip itinerary/i)).toBeInTheDocument();
     expect(screen.getAllByText(/Integrity Audit/i).length).toBeGreaterThan(0);
     expect(screen.getByText(/Integrity Diagnostics/i)).toBeInTheDocument();
@@ -30,14 +33,14 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('shows empty itinerary state when trip has no stops', () => {
     localStorage.setItem(TRIP_KEY, JSON.stringify({ tripName: 'Empty', stops: [] }));
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     expect(screen.getByText('Empty')).toBeInTheDocument();
     expect(screen.queryByText(/Day 1/i)).not.toBeInTheDocument();
   });
 
   it('supports create, edit and delete itinerary item with confirmations', async () => {
     const user = userEvent.setup();
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
 
     await user.click(screen.getByRole('button', { name: /add itinerary item/i }));
     expect(screen.getAllByText(/New itinerary item/i).length).toBeGreaterThan(0);
@@ -51,7 +54,7 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('shows import validation feedback for malformed backup', async () => {
     const user = userEvent.setup();
-    const { container } = render(<TripWorkspace />);
+    const { container } = renderWithStore(<TripWorkspace />);
 
     const fileInput = container.querySelector('input[type="file"][accept="application/json"]');
     expect(fileInput).toBeTruthy();
@@ -64,7 +67,7 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('prevents duplicate audit runs from double-click race by requiring explicit actions', async () => {
     const user = userEvent.setup();
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     const runButton = screen.getByRole('button', { name: /Run Integrity Audit/i });
     await user.dblClick(runButton);
     expect(screen.getByText(/Total runs retained:/i)).toBeInTheDocument();
@@ -72,7 +75,7 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('supports keyboard confirmation controls for destructive flow', async () => {
     const user = userEvent.setup();
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
 
     await user.click(screen.getByRole('button', { name: /Run Integrity Audit/i }));
     await user.click(screen.getByRole('button', { name: /Clear Audit History/i }));
@@ -84,7 +87,7 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('runs integrity diagnostics and surfaces overall status feedback', async () => {
     const user = userEvent.setup();
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     await user.click(screen.getAllByRole('button', { name: /Run Diagnostics/i })[0]);
     expect(await screen.findByText(/Integrity diagnostics completed:/i)).toBeInTheDocument();
   });
@@ -98,7 +101,7 @@ describe('TripWorkspace UI smoke coverage', () => {
         stops: [{ id: 'stop-1', title: '', day: 1, order: 1, notes: '' }],
       }),
     );
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     await user.click(screen.getByRole('button', { name: /Run Integrity Audit/i }));
     await user.click(screen.getByRole('button', { name: /Simulate Selected Repairs/i }));
     expect(await screen.findByText(/Simulation complete/i)).toBeInTheDocument();
@@ -116,7 +119,7 @@ describe('TripWorkspace UI smoke coverage', () => {
     });
     const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
 
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     await user.click(screen.getByRole('button', { name: /Export backup/i }));
     expect(await screen.findByText(/Backup exported:/i)).toBeInTheDocument();
     expect(createObjectURL).toHaveBeenCalled();
@@ -125,7 +128,7 @@ describe('TripWorkspace UI smoke coverage', () => {
 
   it('shows history validation panel counters after audit activity', async () => {
     const user = userEvent.setup();
-    render(<TripWorkspace />);
+    renderWithStore(<TripWorkspace />);
     await user.click(screen.getByRole('button', { name: /Run Integrity Audit/i }));
     const validationLabels = screen.getAllByText(/History validation:/i);
     const validation = validationLabels[validationLabels.length - 1]?.closest('div');

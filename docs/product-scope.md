@@ -22,24 +22,33 @@ The application should help users plan and manage travel without needing to manu
 
 ## MVP scope
 
-### Completed and verified on `main` (Slices 9–28)
+### Completed and verified (Slices 9–28 on `main`)
 
-Local-first Trip Workspace platform:
+Local-first backup/integrity platform:
 
-- Itinerary editing with undo/redo
 - Trip backup import/export and preview
 - Snapshot history, comparison, labels/notes, pin/retention
 - Storage health, diagnostics, and recovery controls
 - Integrity audit, selective repair, forecasting/simulation accuracy, and diagnostics
 - Automated validation gate (`npm run validate`)
 
+### Completed in Slices 29–36 (Trip Platform)
+
+- Trip creation/setup with validation and drafts
+- Trip overview dashboard
+- Day-by-day itinerary planner
+- Bookings manager (local metadata only)
+- Budget tracker
+- Packing lists and templates
+- Traveller profiles (passport metadata fields only)
+
 Details: [`docs/completed-slices.md`](completed-slices.md).
 
 ### Still placeholder / future
 
-The app shell still exposes product language for broader concierge modules (destination discovery, budgets, live bookings, AI assistant with supplier access). Those surfaces must not pretend to have live unlimited provider access before integrations exist.
+Broader concierge modules (live destination discovery, supplier inventory, AI assistant with provider access) remain future work. Those surfaces must not pretend to have live unlimited provider access before integrations exist.
 
-Slice 29+ has not been started.
+Slice 37+ / AI features have not been started.
 
 ## Non-goals for the baseline
 

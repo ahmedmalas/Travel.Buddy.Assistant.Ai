@@ -1,15 +1,11 @@
 # Completed Slices (Verified Baseline)
 
-This document records the completed local-first platform slices now present on `main` after PR #7.
+This document records the completed local-first platform slices on `main` / active feature work.
+
+## Slices 9–28 (merged via PR #7)
 
 Verified merge commit: `8570685f1eda7c2f974179b27282dc6969494efd`  
 PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/7
-
-## Scope
-
-Slices **9–28** deliver the Trip Workspace backup, snapshot, diagnostics, and integrity platform. The implementation is **local-first** (browser `localStorage` only). There is no backend, auth, cloud sync, or live provider inventory in this baseline.
-
-## Slice inventory
 
 | Slice | Capability |
 |------:|------------|
@@ -31,16 +27,30 @@ Slices **9–28** deliver the Trip Workspace backup, snapshot, diagnostics, and 
 | 25–26 | Repair forecasting/simulation accuracy and integrity diagnostics |
 | 27–28 | Automated Vitest gate, coverage thresholds, and safe decomposition |
 
-## Verified runtime surfaces
+## Slices 29–36 (Trip Platform)
 
-- Trip workspace itinerary CRUD, undo/redo, and search
-- Backup export/import with preview and validation errors
-- Snapshot history, restore confirmation, labels/notes, pin/retention
-- Storage health, diagnostics export, and corruption recovery controls
-- Integrity audit, selective repair, simulation accuracy (`Exact Match` / `Partial Match` / `Diverged`)
-- Integrity diagnostics for duplicate IDs, negative counts, malformed fingerprints, invalid timestamps, and invalid baselines
+Implemented on branch `cursor/slices-29-36-trip-platform-03b5` as the next user-facing milestone. Extends the same `useTripStore` local-first model (backup version **3**, with migration from version **2**).
 
-## Validation gate (post-merge on `main`)
+| Slice | Capability |
+|------:|------------|
+| 29 | Trip creation / setup flow with validation and draft save |
+| 30 | Trip overview dashboard (countdown, KPIs, alerts, activity) |
+| 31 | Day-by-day itinerary planner with conflicts, costs, reorder |
+| 32 | Bookings manager (flights/hotels/transport/etc., metadata only) |
+| 33 | Budget tracker with category breakdown and over-budget warnings |
+| 34 | Packing lists, templates, progress, traveller assignment |
+| 35 | Traveller profiles (passport metadata fields only, no scans) |
+| 36 | Product polish, shared store provider, migrations, docs, QA |
+
+## Architecture notes
+
+- Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
+- Domain model + migration in `src/store/tripDomain.ts`
+- Deterministic calculations in `src/store/platformCalculations.ts`
+- UI modules under `src/components/trip-platform/`
+- Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
+
+## Validation gate
 
 ```bash
 npm ci
@@ -51,11 +61,9 @@ npm run build
 npm run validate
 ```
 
-Expected: all gates pass. Current automated suite size: **41** tests across **6** files. Coverage gate thresholds: statements/lines **55%**, branches **45%**, functions **50%**.
+## Explicitly out of scope
 
-## Explicitly out of scope for this baseline
-
-- Slice 29+ (not started)
-- Older divergent open PRs (#1 trip-brief, #3 destination/vault foundation, #6 itinerary feature-module line)
-- Live flights/hotels/maps/booking integrations
-- Backend, accounts, or multi-device sync
+- Slice 37+ / AI features
+- External booking/flight/hotel APIs
+- Passport scans or highly sensitive document file storage
+- Merging divergent older PRs (#1, #3, #6)
