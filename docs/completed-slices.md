@@ -95,17 +95,39 @@ Implemented on branch `cursor/slices-53-60-supabase-cloud-03b5`.
 | 59 | Account/workspace settings (profile, prefs, currency, timezone, notifications, export, deletion safeguards) |
 | 60 | Hardening tests (auth/RLS isolation mocks, migration, sync/conflict, collaboration, storage), docs, QA |
 
+## Slices 61–72 (Frontend Complete)
+
+Implemented on branch `cursor/slices-61-72-frontend-complete-03b5`.  
+Backup schema version raised to **5** (compatible with v2–v5 imports).
+
+| Slice | Capability |
+|------:|------------|
+| 61 | Destination intelligence profiles (country/city/region/language/currency/timezone, entry/safety/customs notes, offline-saved) |
+| 62 | Flight segment management (airports, terminals/gates, layovers, baggage, check-in status) — no live airline API |
+| 63 | Accommodation stays (check-in/out, contacts, rooms, confirmation, payment status, itinerary/traveller links) |
+| 64 | Ground transport (car hire/train/bus/transfer/ferry/taxi/rideshare) |
+| 65 | Maps & routes shell (saved places, daily routes, manual travel-time/distance) — no paid maps provider |
+| 66 | Travel checklist centre (pre-departure template, deadlines, owners, progress) |
+| 67 | Emergency centre (contacts, embassies, insurance, medical, lost passport/luggage workflows) |
+| 68 | Travel journal (entries, ratings, favourites, photo metadata, exportable summary) |
+| 69 | Rule-based smart assistance (overlaps, missing nights, conflicts, free time, checklist deadlines) |
+| 70 | Design system polish + grouped navigation (reduces crowded horizontal tabs) |
+| 71 | Product onboarding (welcome/demo/privacy/local-vs-cloud/import, dismissible progress) |
+| 72 | Final frontend hardening (ErrorBoundary, regression tests, docs, a11y/keyboard/mobile QA) |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
-- Domain model + migration in `src/store/tripDomain.ts`
+- Domain model + migration in `src/store/tripDomain.ts` (backup version **5**)
+- Travel ops domain in `src/store/travelOpsDomain.ts`; rule engine in `src/store/smartAssistance.ts`; onboarding in `src/store/onboarding.ts`
 - Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
 - Extracted constants in `src/store/storeConstants.ts`; module index in `src/store/modules/`
 - Repository contracts in `src/store/repositories/` (local provider default; Supabase provider when env configured)
 - Auth/sync/notifications/command-centre/settings/documents modules under `src/store/`
 - Supabase client/env under `src/lib/supabase/`; SQL under `supabase/migrations/`
 - Deterministic calculations in `src/store/platformCalculations.ts`
-- UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels)
+- UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels, grouped nav)
+- `ErrorBoundary` wraps the trip platform and lazy panels
 - Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
 
 ## Validation gate

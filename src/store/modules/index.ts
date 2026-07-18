@@ -28,6 +28,9 @@ export * as collaborationLifecycle from '../collaboration/collaborationLifecycle
 export * as cloudCollaboration from '../collaboration/cloudCollaboration';
 export * as secureStorage from '../documents/secureStorage';
 export * as accountSettings from '../settings/accountSettings';
+export * as travelOpsDomain from '../travelOpsDomain';
+export * as smartAssistance from '../smartAssistance';
+export * as onboarding from '../onboarding';
 
 export {
   migrateVaultState,

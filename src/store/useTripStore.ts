@@ -154,6 +154,42 @@ import {
 } from './settings/accountSettings';
 import { getCloudRuntimeStatus, isSupabaseConfigured } from '../lib/supabase/client';
 import { SUPABASE_TARGET_VERIFICATION } from '../lib/supabase/env';
+import {
+  DEFAULT_CHECKLIST_TEMPLATES,
+  applyChecklistTemplate,
+  createLostLuggageWorkflow,
+  createLostPassportWorkflow,
+  exportJournalSummary,
+  sanitizeChecklistItem,
+  sanitizeDailyRoute,
+  sanitizeDestination,
+  sanitizeEmergencyCentre,
+  sanitizeFlight,
+  sanitizeGroundTransport,
+  sanitizeJournalEntry,
+  sanitizeSavedPlace,
+  sanitizeStay,
+  type AccommodationStay,
+  type ChecklistItem,
+  type DailyRoute,
+  type DestinationProfile,
+  type EmergencyCentre,
+  type FlightSegment,
+  type GroundTransport,
+  type JournalEntry,
+  type SavedPlace,
+} from './travelOpsDomain';
+import { buildSmartAssistance } from './smartAssistance';
+import {
+  completeOnboardingStep as applyCompleteOnboardingStep,
+  dismissOnboarding as applyDismissOnboarding,
+  loadOnboardingState,
+  onboardingProgress as computeOnboardingProgress,
+  persistOnboardingState,
+  resetOnboarding as createResetOnboardingState,
+  type OnboardingState,
+  type OnboardingStepId,
+} from './onboarding';
 
 export type {
   Booking,
@@ -1287,6 +1323,7 @@ export function useTripStore() {
   const accountSettingsRef = useRef(accountSettings);
   accountSettingsRef.current = accountSettings;
   const [cloudMigrationMessage, setCloudMigrationMessage] = useState<string | null>(null);
+  const [onboardingState, setOnboardingState] = useState<OnboardingState>(() => loadOnboardingState());
   const repositories = useMemo(
     () => (isSupabaseConfigured() ? createSupabaseDataRepositories() : createLocalDataRepositories()),
     [],
@@ -1444,6 +1481,9 @@ export function useTripStore() {
   useEffect(() => {
     persistSyncState(syncState);
   }, [syncState]);
+  useEffect(() => {
+    persistOnboardingState(onboardingState);
+  }, [onboardingState]);
   useEffect(() => {
     setNotificationState((current) => {
       const next = buildNotificationsFromTrips(vault.trips, current);
@@ -1775,6 +1815,118 @@ export function useTripStore() {
         ),
       { createSnapshot: true },
     );
+  };
+
+  const upsertCollectionItem = <T extends { id: string }>(
+    key:
+      | 'destinations'
+      | 'flights'
+      | 'stays'
+      | 'groundTransport'
+      | 'savedPlaces'
+      | 'dailyRoutes'
+      | 'checklistItems'
+      | 'journalEntries',
+    item: T,
+    sanitize: (value: Partial<T>) => T,
+    message: string,
+  ) => {
+    const clean = sanitize(item);
+    updateTrip((trip) => {
+      const list = [...((trip[key] as T[] | undefined) ?? [])];
+      const exists = list.some((entry) => entry.id === clean.id);
+      const nextList = exists ? list.map((entry) => (entry.id === clean.id ? clean : entry)) : [...list, clean];
+      return appendActivity({ ...trip, [key]: nextList }, exists ? `Updated ${message}.` : `Added ${message}.`);
+    }, { createSnapshot: true });
+  };
+
+  const deleteCollectionItem = (
+    key:
+      | 'destinations'
+      | 'flights'
+      | 'stays'
+      | 'groundTransport'
+      | 'savedPlaces'
+      | 'dailyRoutes'
+      | 'checklistItems'
+      | 'journalEntries',
+    id: string,
+    message: string,
+  ) => {
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            [key]: ((trip[key] as Array<{ id: string }> | undefined) ?? []).filter((entry) => entry.id !== id),
+          },
+          `Deleted ${message}.`,
+        ),
+      { createSnapshot: true },
+    );
+  };
+
+  const upsertDestination = (destination: DestinationProfile) =>
+    upsertCollectionItem('destinations', destination, sanitizeDestination, 'destination');
+  const deleteDestination = (id: string) => deleteCollectionItem('destinations', id, 'destination');
+  const upsertFlight = (flight: FlightSegment) => upsertCollectionItem('flights', flight, sanitizeFlight, 'flight');
+  const deleteFlight = (id: string) => deleteCollectionItem('flights', id, 'flight');
+  const upsertStay = (stay: AccommodationStay) => upsertCollectionItem('stays', stay, sanitizeStay, 'stay');
+  const deleteStay = (id: string) => deleteCollectionItem('stays', id, 'stay');
+  const upsertGroundTransport = (transport: GroundTransport) =>
+    upsertCollectionItem('groundTransport', transport, sanitizeGroundTransport, 'ground transport');
+  const deleteGroundTransport = (id: string) => deleteCollectionItem('groundTransport', id, 'ground transport');
+  const upsertSavedPlace = (place: SavedPlace) => upsertCollectionItem('savedPlaces', place, sanitizeSavedPlace, 'saved place');
+  const deleteSavedPlace = (id: string) => deleteCollectionItem('savedPlaces', id, 'saved place');
+  const upsertDailyRoute = (route: DailyRoute) => upsertCollectionItem('dailyRoutes', route, sanitizeDailyRoute, 'daily route');
+  const deleteDailyRoute = (id: string) => deleteCollectionItem('dailyRoutes', id, 'daily route');
+  const upsertChecklistItem = (item: ChecklistItem) =>
+    upsertCollectionItem('checklistItems', item, sanitizeChecklistItem, 'checklist item');
+  const deleteChecklistItem = (id: string) => deleteCollectionItem('checklistItems', id, 'checklist item');
+  const upsertJournalEntry = (entry: JournalEntry) =>
+    upsertCollectionItem('journalEntries', entry, sanitizeJournalEntry, 'journal entry');
+  const deleteJournalEntry = (id: string) => deleteCollectionItem('journalEntries', id, 'journal entry');
+
+  const applyPreDepartureChecklistTemplate = () => {
+    const template = DEFAULT_CHECKLIST_TEMPLATES[0];
+    if (!template) return;
+    updateTrip((trip) => {
+      const next = applyChecklistTemplate(trip.checklistItems ?? [], template, trip.departureDate);
+      return appendActivity({ ...trip, checklistItems: next }, `Applied checklist template: ${template.name}.`);
+    }, { createSnapshot: true });
+  };
+
+  const updateEmergencyCentre = (emergency: EmergencyCentre) => {
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          { ...trip, emergency: sanitizeEmergencyCentre(emergency) },
+          'Updated emergency centre.',
+        ),
+      { createSnapshot: true },
+    );
+  };
+
+  const startLostPassportWorkflow = () => {
+    updateTrip((trip) => {
+      const emergency = sanitizeEmergencyCentre(trip.emergency);
+      const workflow = createLostPassportWorkflow();
+      return appendActivity(
+        { ...trip, emergency: { ...emergency, workflows: [workflow, ...emergency.workflows] } },
+        'Started lost passport workflow.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const startLostLuggageWorkflow = () => {
+    updateTrip((trip) => {
+      const emergency = sanitizeEmergencyCentre(trip.emergency);
+      const workflow = createLostLuggageWorkflow();
+      return appendActivity(
+        { ...trip, emergency: { ...emergency, workflows: [workflow, ...emergency.workflows] } },
+        'Started lost luggage workflow.',
+      );
+    }, { createSnapshot: true });
   };
 
   const upsertExpense = (expense: Expense) => {
@@ -4772,6 +4924,14 @@ export function useTripStore() {
   );
   const visibleTemplates = useMemo(() => filterTemplates(templates, vaultQuery), [templates, vaultQuery]);
   const activeVaultTrip = useMemo(() => toVaultTrip(history.present, vault.activeTripId), [history.present, vault.activeTripId]);
+  const exportTripJournalSummary = () =>
+    exportJournalSummary(
+      activeVaultTrip.tripName,
+      activeVaultTrip.destination,
+      activeVaultTrip.journalEntries ?? [],
+    );
+  const smartAssistance = useMemo(() => buildSmartAssistance(activeVaultTrip), [activeVaultTrip]);
+  const onboardingProgressValue = useMemo(() => computeOnboardingProgress(onboardingState), [onboardingState]);
   const notifications = useMemo(() => visibleNotifications(notificationState), [notificationState]);
   const unreadNotifications = useMemo(() => unreadNotificationCount(notificationState), [notificationState]);
   const syncSummary = useMemo(() => syncQueueSummary(syncState), [syncState]);
@@ -4853,6 +5013,34 @@ export function useTripStore() {
     toVaultBackupJson,
     rescheduleStopDate,
     activeVaultTrip,
+    upsertDestination,
+    deleteDestination,
+    upsertFlight,
+    deleteFlight,
+    upsertStay,
+    deleteStay,
+    upsertGroundTransport,
+    deleteGroundTransport,
+    upsertSavedPlace,
+    deleteSavedPlace,
+    upsertDailyRoute,
+    deleteDailyRoute,
+    upsertChecklistItem,
+    deleteChecklistItem,
+    applyPreDepartureChecklistTemplate,
+    updateEmergencyCentre,
+    startLostPassportWorkflow,
+    startLostLuggageWorkflow,
+    upsertJournalEntry,
+    deleteJournalEntry,
+    exportTripJournalSummary,
+    smartAssistance,
+    onboardingState,
+    onboardingProgress: onboardingProgressValue,
+    completeOnboardingStep: (step: OnboardingStepId) =>
+      setOnboardingState((current) => applyCompleteOnboardingStep(current, step)),
+    dismissOnboarding: () => setOnboardingState((current) => applyDismissOnboarding(current)),
+    resetOnboarding: () => setOnboardingState(createResetOnboardingState()),
     authState,
     authProvider,
     emailVerified,

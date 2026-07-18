@@ -75,11 +75,18 @@ Details: [`docs/completed-slices.md`](completed-slices.md).
 
 **Note:** Remote Supabase migrations are not applied until a verified Travel Buddy project is confirmed. Local/demo mode remains default.
 
+### Completed in Slices 61–72 (Frontend Complete)
+
+- Destination profiles, flights, stays, ground transport
+- Maps/routes shell (manual time/distance; no paid maps)
+- Checklist centre, emergency centre, travel journal
+- Rule-based smart assistance (deterministic, no external AI)
+- Grouped navigation + design polish + onboarding
+- Error boundaries, backup v5 migration compatibility, docs/QA
+
 ### Still placeholder / future
 
-Broader concierge modules (live destination discovery, supplier inventory, AI assistant with provider access) remain future work. Those surfaces must not pretend to have live unlimited provider access before integrations exist.
-
-Verified production Supabase project linkage is still pending.
+Live destination discovery, supplier inventory, paid maps, and AI assistant access remain future work. Verified production Supabase project linkage is still pending.
 
 ## Non-goals for the baseline
 
