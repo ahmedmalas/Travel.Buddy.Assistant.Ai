@@ -10,8 +10,9 @@ The long-term product vision is not a simple itinerary builder. The goal is to b
 
 - **Slices 9–28** local-first backup/integrity platform (PR #7)
 - **Slices 29–36** Trip Platform (PR #9)
+- **Slices 37–44** Vault Platform (PR #10, merge `f412d6e`)
 
-Active development adds **Slices 37–44** Vault Platform capabilities:
+Verified Vault Platform capabilities:
 
 - Multi-trip vault with favourites, archive, duplicate, search/filter/sort
 - Trip templates (defaults + save/create/manage)

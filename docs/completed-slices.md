@@ -44,7 +44,11 @@ Merged via PR #9 onto `main`. Extends the local-first model (backup version **3*
 
 ## Slices 37–44 (Vault Platform)
 
-Implemented on branch `cursor/slices-37-44-vault-platform-03b5`. Extends the same `useTripStore` with multi-trip vault storage (backup version **4**, migrates v2/v3).
+Merged via PR #10 onto `main`.  
+Verified merge commit: `f412d6e`  
+PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/10
+
+Extends the same `useTripStore` with multi-trip vault storage (backup version **4**, migrates v2/v3).
 
 | Slice | Capability |
 |------:|------------|
