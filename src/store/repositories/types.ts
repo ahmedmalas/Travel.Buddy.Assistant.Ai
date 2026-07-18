@@ -62,19 +62,22 @@ export type DataRepositories = {
   collaboration: CollaborationRepository;
 };
 
-/** Future Supabase adapter placeholder — not connected. */
+/** Supabase adapter plan — activates when env is configured and target is verified. */
 export type CloudAdapterPlan = {
   provider: 'supabase';
-  status: 'not-connected';
+  status: 'local-active' | 'env-ready' | 'target-unverified' | 'connected';
   notes: string;
   interfaces: Array<keyof DataRepositories>;
+  remoteMigrationsApplied: boolean;
 };
 
 export const SUPABASE_ADAPTER_PLAN: CloudAdapterPlan = {
   provider: 'supabase',
-  status: 'not-connected',
-  notes: 'LocalStorageDataProvider is active. A future SupabaseDataProvider can implement DataRepositories without UI rewrites.',
+  status: 'target-unverified',
+  notes:
+    'LocalStorageDataProvider remains the default. SupabaseDataProvider implements the same DataRepositories contracts and activates when VITE_SUPABASE_* env is set. Remote migrations are blocked until a Travel Buddy project target is verified.',
   interfaces: ['trips', 'bookings', 'expenses', 'travellers', 'documents', 'templates', 'collaboration'],
+  remoteMigrationsApplied: false,
 };
 
 export type ActiveTripSnapshot = TripData;

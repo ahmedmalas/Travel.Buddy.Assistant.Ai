@@ -18,14 +18,22 @@ const createDocument = (): TripDocument => ({
 });
 
 export function DocumentsPanel() {
-  const { activeVaultTrip, upsertDocument, deleteDocument, documentExpiryReminders } = useSharedTripStore();
+  const {
+    activeVaultTrip,
+    upsertDocument,
+    deleteDocument,
+    documentExpiryReminders,
+    uploadDocumentFile,
+    deleteDocumentFile,
+    validateDocumentUpload,
+  } = useSharedTripStore();
   const [draft, setDraft] = useState<TripDocument>(createDocument());
   const [feedback, setFeedback] = useState<string | null>(null);
 
   return (
     <Panel
       title="Travel documents"
-      description="Store passport, visa, insurance, and ticket metadata only — attachment placeholders, no file uploads."
+      description="Metadata plus optional private Supabase Storage uploads (validated MIME/size, signed access). Local placeholders remain when cloud is unavailable."
     >
       {feedback ? <StatusBanner kind="info" message={feedback} /> : null}
 
@@ -110,7 +118,43 @@ export function DocumentsPanel() {
           </Field>
         </div>
       </div>
-      <div className="mt-3">
+      <div className="mt-3 flex flex-wrap items-end gap-3">
+        <Field label="Secure file upload" htmlFor="doc-file">
+          <input
+            id="doc-file"
+            type="file"
+            accept=".pdf,image/jpeg,image/png,image/webp,text/plain"
+            className={inputClassName}
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (!file) return;
+              const validation = validateDocumentUpload({
+                fileName: file.name,
+                mimeType: file.type || 'application/octet-stream',
+                sizeBytes: file.size,
+              });
+              if (!validation.ok) {
+                setFeedback(validation.message);
+                return;
+              }
+              setDraft((current) => ({
+                ...current,
+                attachmentName: file.name,
+                attachmentMimeType: file.type,
+              }));
+              void uploadDocumentFile({
+                tripId: activeVaultTrip.id,
+                documentId: draft.id,
+                fileName: file.name,
+                mimeType: file.type,
+                sizeBytes: file.size,
+                bytes: file,
+              }).then((result) => {
+                setFeedback(result.ok ? `File reserved/uploaded: ${result.value.path}` : result.message);
+              });
+            }}
+          />
+        </Field>
         <PrimaryButton
           type="button"
           onClick={() => {
@@ -150,7 +194,18 @@ export function DocumentsPanel() {
                   <SecondaryButton type="button" onClick={() => setDraft(document)}>
                     Edit
                   </SecondaryButton>
-                  <SecondaryButton type="button" onClick={() => deleteDocument(document.id)}>
+                  <SecondaryButton
+                    type="button"
+                    onClick={() => {
+                      if (document.attachmentName) {
+                        void deleteDocumentFile(
+                          `local://${activeVaultTrip.id}/${document.id}/${document.attachmentName}`,
+                          document.id,
+                        );
+                      }
+                      deleteDocument(document.id);
+                    }}
+                  >
                     Delete
                   </SecondaryButton>
                 </div>

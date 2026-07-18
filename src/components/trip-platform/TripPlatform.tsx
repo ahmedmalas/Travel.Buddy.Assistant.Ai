@@ -58,6 +58,9 @@ const NotificationCentrePanel = lazy(() =>
 const CommandCentreDashboard = lazy(() =>
   import('./CommandCentreDashboard').then((module) => ({ default: module.CommandCentreDashboard })),
 );
+const AccountSettingsPanel = lazy(() =>
+  import('./AccountSettingsPanel').then((module) => ({ default: module.AccountSettingsPanel })),
+);
 
 const TABS = [
   { id: 'command', label: 'Command centre' },
@@ -77,6 +80,7 @@ const TABS = [
   { id: 'collaboration', label: 'Collaboration' },
   { id: 'auth', label: 'Auth' },
   { id: 'sync', label: 'Sync' },
+  { id: 'account', label: 'Account' },
   { id: 'import', label: 'Import' },
   { id: 'system', label: 'Backup & integrity' },
 ] as const;
@@ -130,6 +134,7 @@ function TripPlatformInner() {
     collaboration: CollaborationPanel,
     auth: AuthShellPanel,
     sync: SyncEnginePanel,
+    account: AccountSettingsPanel,
     import: ImportMigrationPanel,
     system: () => (
       <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-2 md:p-4">
@@ -149,8 +154,8 @@ function TripPlatformInner() {
         <p className="text-sm font-semibold uppercase tracking-[0.32em] text-sky-300">Travel Buddy</p>
         <h2 className="mt-2 text-3xl font-bold text-white md:text-4xl">Trip platform</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-          Slices 9–52: local-first vault platform with decomposed store modules, repository contracts, auth/sync shells,
-          notifications, and command centre — ready for future cloud adapters.
+          Slices 9–60: local-first platform with optional Supabase cloud adapters (auth, persistence, sync, collaboration,
+          secure documents, account settings). Local/demo mode remains the default until a verified Travel Buddy project is linked.
         </p>
         <nav className="mt-5 flex gap-2 overflow-x-auto pb-1" aria-label="Trip platform sections" role="tablist">
           {TABS.map((tab) => {

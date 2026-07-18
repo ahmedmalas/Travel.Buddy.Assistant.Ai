@@ -63,7 +63,9 @@ Extends the same `useTripStore` with multi-trip vault storage (backup version **
 
 ## Slices 45–52 (Platform Foundation)
 
-Implemented on branch `cursor/slices-45-52-platform-foundation-03b5`.
+Merged via PR #12 onto `main`.  
+Verified merge commit: `eb081af`  
+PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/12
 
 | Slice | Capability |
 |------:|------------|
@@ -76,14 +78,32 @@ Implemented on branch `cursor/slices-45-52-platform-foundation-03b5`.
 | 51 | Command centre dashboard (all-trips summary, alerts, budgets, quick actions, responsive) |
 | 52 | Hardening (lazy-loaded panels, a11y tab nav, regression tests, docs) |
 
+## Slices 53–60 (Supabase Cloud Foundation)
+
+Implemented on branch `cursor/slices-53-60-supabase-cloud-03b5`.
+
+**Supabase target status:** unverified. Accessible MCP projects (`aboss-production`, `ai-invoicing-app-production`, `aleya-logo-creator`) are not Travel Buddy. Remote migrations were **not** applied. SQL lives in `supabase/migrations/` for a future approved project. Local/demo mode remains the default.
+
+| Slice | Capability |
+|------:|------------|
+| 53 | Supabase client + env validation, schema/migrations/RLS SQL, dual local/cloud mode, no secrets in repo |
+| 54 | Live auth adapters (email/password, verification states, forgot/reset, session persistence, sign-out, clear errors, password visibility) with local fallback |
+| 55 | Cloud trip persistence via repository adapters + local-to-cloud migration + offline fallback |
+| 56 | Real sync engine push/pull, revision tracking, retry queue, offline recovery, deterministic conflicts |
+| 57 | Collaboration invitations/roles with cloud persistence hooks + unauthorised-write prevention helpers |
+| 58 | Secure document storage helpers (validation, private paths, signed URLs, metadata) with local fallback |
+| 59 | Account/workspace settings (profile, prefs, currency, timezone, notifications, export, deletion safeguards) |
+| 60 | Hardening tests (auth/RLS isolation mocks, migration, sync/conflict, collaboration, storage), docs, QA |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
 - Domain model + migration in `src/store/tripDomain.ts`
 - Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
 - Extracted constants in `src/store/storeConstants.ts`; module index in `src/store/modules/`
-- Repository contracts in `src/store/repositories/` (local provider active)
-- Auth/sync/notifications/command-centre modules under `src/store/{auth,sync,notifications,commandCentre,collaboration}/`
+- Repository contracts in `src/store/repositories/` (local provider default; Supabase provider when env configured)
+- Auth/sync/notifications/command-centre/settings/documents modules under `src/store/`
+- Supabase client/env under `src/lib/supabase/`; SQL under `supabase/migrations/`
 - Deterministic calculations in `src/store/platformCalculations.ts`
 - UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels)
 - Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
@@ -103,6 +123,6 @@ npm run validate
 
 - AI features / live provider inventory
 - External booking/flight/hotel APIs
-- Passport scans or highly sensitive document file storage
-- Backend sync for collaboration
+- Applying remote Supabase migrations without a verified Travel Buddy project
 - Merging divergent older PRs (#1, #3, #6)
+- Deploy / auto-merge

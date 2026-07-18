@@ -88,26 +88,30 @@ import {
   enterDemoMode,
   loadAuthState,
   persistAuthState,
-  requestPasswordReset,
-  resetPasswordLocal,
   setAuthScreen,
-  signInLocal,
-  signOutLocal,
-  signUpLocal,
   type AuthScreen,
   type AuthShellState,
 } from './auth/authShell';
+import {
+  clearAuthError,
+  hydrateAuthFromSession,
+  liveForgotPassword,
+  liveResetPassword,
+  liveSignIn,
+  liveSignOut,
+  liveSignUp,
+} from './auth/liveAuth';
 import {
   enqueueChange,
   loadSyncState,
   persistSyncState,
   retryFailedChanges,
-  runManualSync,
   setNetworkState,
   syncQueueSummary,
   type SyncEngineState,
   type SyncEntityType,
 } from './sync/syncEngine';
+import { runCloudSync } from './sync/cloudSync';
 import {
   buildNotificationsFromTrips,
   dismissNotification as applyDismissNotification,
@@ -120,13 +124,36 @@ import {
   type NotificationCentreState,
 } from './notifications/notificationCentre';
 import { buildCommandCentre } from './commandCentre/commandCentre';
-import { SUPABASE_ADAPTER_PLAN, createLocalDataRepositories } from './repositories';
+import {
+  SUPABASE_ADAPTER_PLAN,
+  createLocalDataRepositories,
+  createSupabaseDataRepositories,
+  migrateLocalVaultToCloud,
+} from './repositories';
 import {
   applyInvitationAction,
   assertCanEdit,
   assertCanManageMembers,
   type InvitationAction,
 } from './collaboration/collaborationLifecycle';
+import { applyCloudInvitationAction, persistInvitationToCloud } from './collaboration/cloudCollaboration';
+import {
+  createSignedDocumentUrl,
+  deleteTravelDocumentFile,
+  uploadTravelDocument,
+  validateDocumentFile,
+} from './documents/secureStorage';
+import {
+  evaluateAccountDeletion,
+  exportAccountDataBundle,
+  loadAccountSettings,
+  persistAccountSettings,
+  syncAccountSettingsToCloud,
+  updateAccountSettings,
+  type AccountSettings,
+} from './settings/accountSettings';
+import { getCloudRuntimeStatus, isSupabaseConfigured } from '../lib/supabase/client';
+import { SUPABASE_TARGET_VERIFICATION } from '../lib/supabase/env';
 
 export type {
   Booking,
@@ -1248,9 +1275,23 @@ export function useTripStore() {
   const [vaultSort, setVaultSort] = useState<VaultSortKey>('lastOpened');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [authState, setAuthState] = useState<AuthShellState>(() => loadAuthState());
+  const [authProvider, setAuthProvider] = useState<'supabase' | 'local-demo'>(() =>
+    isSupabaseConfigured() ? 'supabase' : 'local-demo',
+  );
+  const [emailVerified, setEmailVerified] = useState<boolean | null>(null);
   const [syncState, setSyncState] = useState<SyncEngineState>(() => loadSyncState());
+  const syncStateRef = useRef(syncState);
+  syncStateRef.current = syncState;
   const [notificationState, setNotificationState] = useState<NotificationCentreState>(() => loadNotificationState());
-  const repositories = useMemo(() => createLocalDataRepositories(), []);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings>(() => loadAccountSettings());
+  const accountSettingsRef = useRef(accountSettings);
+  accountSettingsRef.current = accountSettings;
+  const [cloudMigrationMessage, setCloudMigrationMessage] = useState<string | null>(null);
+  const repositories = useMemo(
+    () => (isSupabaseConfigured() ? createSupabaseDataRepositories() : createLocalDataRepositories()),
+    [],
+  );
+  const cloudRuntime = useMemo(() => getCloudRuntimeStatus(), []);
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() => initialSnapshotStorage.snapshots);
   const [activeTripParseStatus, setActiveTripParseStatus] = useState<StorageParseStatus>(initialActiveTripStorage.parseStatus);
   const [snapshotHistoryParseStatus, setSnapshotHistoryParseStatus] = useState<StorageParseStatus>(
@@ -4813,21 +4854,119 @@ export function useTripStore() {
     rescheduleStopDate,
     activeVaultTrip,
     authState,
-    authSignIn: (email: string, password: string) => setAuthState((current) => signInLocal(current, email, password)),
-    authSignUp: (email: string, password: string, displayName: string) =>
-      setAuthState((current) => signUpLocal(current, email, password, displayName)),
-    authSignOut: () => setAuthState((current) => signOutLocal(current)),
-    authForgotPassword: (email: string) => setAuthState((current) => requestPasswordReset(current, email)),
-    authResetPassword: (token: string, password: string) =>
-      setAuthState((current) => resetPasswordLocal(current, token, password)),
-    authEnterDemoMode: () => setAuthState(enterDemoMode()),
+    authProvider,
+    emailVerified,
+    authSignIn: async (email: string, password: string) => {
+      const result = await liveSignIn(authState, email, password);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
+      return result;
+    },
+    authSignUp: async (email: string, password: string, displayName: string) => {
+      const result = await liveSignUp(authState, email, password, displayName);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
+      return result;
+    },
+    authSignOut: async () => {
+      const result = await liveSignOut(authState);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
+      return result;
+    },
+    authForgotPassword: async (email: string) => {
+      const result = await liveForgotPassword(authState, email);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      return result;
+    },
+    authResetPassword: async (token: string, password: string) => {
+      const result = await liveResetPassword(authState, token, password);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      return result;
+    },
+    authEnterDemoMode: () => {
+      setAuthProvider('local-demo');
+      setEmailVerified(null);
+      setAuthState(enterDemoMode());
+    },
     authSetScreen: (screen: AuthScreen) => setAuthState((current) => setAuthScreen(current, screen)),
+    authClearError: () => setAuthState((current) => clearAuthError(current)),
+    authHydrateSession: async () => {
+      const result = await hydrateAuthFromSession(authState);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
+      return result;
+    },
     syncState,
     syncSummary,
     queueEntityChange,
-    runSync: () => setSyncState((current) => runManualSync(current)),
+    runSync: async () => {
+      const result = await runCloudSync(syncStateRef.current);
+      setSyncState(result.state);
+      return result;
+    },
     retrySyncFailures: () => setSyncState((current) => retryFailedChanges(current)),
     setSyncNetwork: (network: 'online' | 'offline') => setSyncState((current) => setNetworkState(current, network)),
+    migrateLocalToCloud: async () => {
+      const result = await migrateLocalVaultToCloud(vault);
+      setCloudMigrationMessage(result.ok ? result.value.message : result.message);
+      return result;
+    },
+    cloudMigrationMessage,
+    uploadDocumentFile: async (input: {
+      tripId: string;
+      documentId: string;
+      fileName: string;
+      mimeType: string;
+      sizeBytes: number;
+      bytes?: ArrayBuffer | Uint8Array | Blob | null;
+    }) => uploadTravelDocument(input),
+    createDocumentSignedUrl: async (path: string, expiresInSeconds?: number) =>
+      createSignedDocumentUrl(path, expiresInSeconds),
+    deleteDocumentFile: async (path: string, documentId?: string) => deleteTravelDocumentFile(path, documentId),
+    validateDocumentUpload: validateDocumentFile,
+    accountSettings,
+    updateAccountSettingsLocal: (
+      patch: Parameters<typeof updateAccountSettings>[1],
+    ) => {
+      setAccountSettings((current) => {
+        const next = updateAccountSettings(current, patch);
+        persistAccountSettings(next);
+        return next;
+      });
+    },
+    syncAccountSettings: async () => {
+      const result = await syncAccountSettingsToCloud(accountSettingsRef.current);
+      if (result.ok) setAccountSettings(result.value);
+      return result;
+    },
+    exportAccountData: () =>
+      exportAccountDataBundle({
+        settings: accountSettingsRef.current,
+        vaultJson: toVaultBackupJson(),
+      }),
+    evaluateAccountDeletionGuard: (confirmation: string) =>
+      evaluateAccountDeletion({
+        confirmation,
+        activeTripCount: vault.trips.filter((trip) => trip.status !== 'archived').length,
+        hasPendingSync: syncQueueSummary(syncStateRef.current).pending > 0 || syncQueueSummary(syncStateRef.current).failed > 0,
+      }),
+    applyCloudCollaboratorAction: async (memberId: string, action: 'accept' | 'revoke' | 'expire') => {
+      const collab = activeVaultTrip.collaboration;
+      const result = await applyCloudInvitationAction(collab, memberId, action, activeVaultTrip.id);
+      if (result.ok) {
+        applyCollaboratorInvitationAction(memberId, action);
+      }
+      return result;
+    },
+    persistCollaboratorInvite: async (member: Parameters<typeof persistInvitationToCloud>[1]) =>
+      persistInvitationToCloud(activeVaultTrip.id, member),
     notifications,
     unreadNotifications,
     markNotificationRead: (id: string) =>
@@ -4851,6 +4990,8 @@ export function useTripStore() {
     commandCentre,
     repositories,
     cloudAdapterPlan: SUPABASE_ADAPTER_PLAN,
+    cloudRuntime,
+    supabaseTargetVerification: SUPABASE_TARGET_VERIFICATION,
     storageKeyCatalog: STORAGE_KEYS,
     undo,
     redo,

@@ -62,7 +62,8 @@ describe('localStorageProvider repositories', () => {
   });
 
   it('documents the supabase adapter plan without connecting', () => {
-    expect(SUPABASE_ADAPTER_PLAN.status).toBe('not-connected');
+    expect(SUPABASE_ADAPTER_PLAN.status).toBe('target-unverified');
+    expect(SUPABASE_ADAPTER_PLAN.remoteMigrationsApplied).toBe(false);
     expect(SUPABASE_ADAPTER_PLAN.interfaces).toContain('trips');
   });
 });

@@ -20,9 +20,9 @@ describe('TripPlatform UI', () => {
     await user.click(screen.getByRole('tab', { name: /^Notifications$/i }));
     expect(await screen.findByRole('heading', { name: /Notification centre/i })).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /^Auth$/i }));
-    expect(await screen.findByRole('heading', { name: /Authentication shell/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Authentication$/i })).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /^Sync$/i }));
-    expect(await screen.findByRole('heading', { name: /Sync engine foundation/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Sync engine$/i })).toBeInTheDocument();
   });
 
   it('supports arrow-key tab navigation from command centre', async () => {

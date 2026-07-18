@@ -13,12 +13,22 @@ export {
   BACKUP_VERSION,
   APPLICATION_VERSION,
 } from '../storeConstants';
-export { SUPABASE_ADAPTER_PLAN, createLocalDataRepositories } from '../repositories';
+export {
+  SUPABASE_ADAPTER_PLAN,
+  createLocalDataRepositories,
+  createSupabaseDataRepositories,
+} from '../repositories';
 export * as authShell from '../auth/authShell';
+export * as liveAuth from '../auth/liveAuth';
 export * as syncEngine from '../sync/syncEngine';
+export * as cloudSync from '../sync/cloudSync';
 export * as notificationCentre from '../notifications/notificationCentre';
 export * as commandCentre from '../commandCentre/commandCentre';
 export * as collaborationLifecycle from '../collaboration/collaborationLifecycle';
+export * as cloudCollaboration from '../collaboration/cloudCollaboration';
+export * as secureStorage from '../documents/secureStorage';
+export * as accountSettings from '../settings/accountSettings';
+
 export {
   migrateVaultState,
   validateVaultImportPayload,

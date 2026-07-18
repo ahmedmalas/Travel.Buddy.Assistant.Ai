@@ -11,4 +11,5 @@ export type {
   TripRepository,
 } from './types';
 export { SUPABASE_ADAPTER_PLAN } from './types';
+export { createSupabaseDataRepositories, migrateLocalVaultToCloud } from './supabaseProvider';
 export { createLocalDataRepositories } from './localStorageProvider';
