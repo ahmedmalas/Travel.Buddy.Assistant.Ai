@@ -1,14 +1,35 @@
 # Architecture
 
-Travel Buddy Assistant AI starts as a clean React, Vite, TypeScript, and Tailwind frontend.
+Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform.
 
-## Baseline architecture
+## Verified baseline architecture (Slices 9–28)
 
-- `src/main.tsx` mounts the React application.
-- `src/App.tsx` renders the top-level app.
-- `src/components` contains reusable UI building blocks.
+- `src/main.ts` mounts the React application.
+- `src/App.tsx` renders the top-level app shell.
+- `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripWorkspace`.
+- `src/components/TripWorkspace.tsx` is the primary trip/backup/integrity UI surface.
+- `src/components/trip-workspace/comparisonUtils.ts` holds pure snapshot comparison helpers.
+- `src/store/useTripStore.ts` owns trip state, undo/redo, backup/snapshot persistence, storage health, and integrity workflows.
+- `src/store/integrityCalculations.ts` holds deterministic integrity scoring/trend/accuracy helpers.
 - `src/data` contains early static product/module definitions.
-- `docs` records the product and architecture decisions.
+- `docs` records product scope, architecture, and completed-slice verification.
+
+## Persistence model
+
+All trip, snapshot, and integrity history state persists in browser `localStorage` keys managed by `useTripStore`. There is no backend database in this baseline.
+
+Key local-first capabilities:
+
+- Trip backup schema validation and import preview
+- Automatic snapshot history with retention and pin protection
+- Integrity audit history, baselines, analytics, and diagnostics
+- Repair simulation with accuracy classification (`Exact Match`, `Partial Match`, `Diverged`)
+
+## Validation architecture
+
+- Vitest + Testing Library (`npm test`, `npm run test:coverage`)
+- Release gate: `npm run validate` (`typecheck` + `test` + `build`)
+- Coverage thresholds enforce a minimum automated safety net for the backup/integrity platform
 
 ## Long-term architecture direction
 

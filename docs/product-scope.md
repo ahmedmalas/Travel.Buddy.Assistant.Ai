@@ -22,7 +22,24 @@ The application should help users plan and manage travel without needing to manu
 
 ## MVP scope
 
-The first version should establish the app shell, product language, module structure, and placeholder surfaces. It should not pretend to have live unlimited access before integrations exist.
+### Completed and verified on `main` (Slices 9–28)
+
+Local-first Trip Workspace platform:
+
+- Itinerary editing with undo/redo
+- Trip backup import/export and preview
+- Snapshot history, comparison, labels/notes, pin/retention
+- Storage health, diagnostics, and recovery controls
+- Integrity audit, selective repair, forecasting/simulation accuracy, and diagnostics
+- Automated validation gate (`npm run validate`)
+
+Details: [`docs/completed-slices.md`](completed-slices.md).
+
+### Still placeholder / future
+
+The app shell still exposes product language for broader concierge modules (destination discovery, budgets, live bookings, AI assistant with supplier access). Those surfaces must not pretend to have live unlimited provider access before integrations exist.
+
+Slice 29+ has not been started.
 
 ## Non-goals for the baseline
 
@@ -30,3 +47,4 @@ The first version should establish the app shell, product language, module struc
 - No fake airline or hotel inventory
 - No unsupported claims of complete provider access
 - No scraping or provider access unless legally and technically approved
+- No backend sync, accounts, or multi-device storage in Slices 9–28
