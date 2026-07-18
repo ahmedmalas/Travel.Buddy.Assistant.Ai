@@ -4,32 +4,34 @@ import { describe, expect, it } from 'vitest';
 import { TripPlatform } from './TripPlatform';
 
 describe('TripPlatform UI', () => {
-  it('renders overview and switches to trip setup', async () => {
+  it('renders vault and switches to trip setup', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
     expect(screen.getByRole('heading', { name: /Trip platform/i })).toBeInTheDocument();
-    expect(screen.getByText(/Trip overview/i)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /^Trip vault$/i })).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Trip setup/i }));
     expect(screen.getByRole('heading', { name: /Create or edit trip/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/Trip name/i)).toBeInTheDocument();
   });
 
-  it('opens bookings and budget tabs', async () => {
+  it('opens calendar, documents, and search tabs', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
-    await user.click(screen.getByRole('tab', { name: /^Bookings$/i }));
-    expect(screen.getByRole('heading', { name: /Bookings manager/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /^Budget$/i }));
-    expect(screen.getByRole('heading', { name: /Budget tracker/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Calendar$/i }));
+    expect(screen.getByRole('heading', { name: /Calendar planner/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Documents$/i }));
+    expect(screen.getByRole('heading', { name: /Travel documents/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Search$/i }));
+    expect(screen.getByRole('heading', { name: /Global search/i })).toBeInTheDocument();
   });
 
-  it('supports arrow-key tab navigation', async () => {
+  it('supports arrow-key tab navigation from vault', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
-    const overview = screen.getByRole('tab', { name: /^Overview$/i });
-    overview.focus();
+    const vault = screen.getByRole('tab', { name: /^Vault$/i });
+    vault.focus();
     await user.keyboard('{ArrowRight}');
-    expect(screen.getByRole('tab', { name: /^Itinerary$/i })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: /Day-by-day itinerary/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Trip setup/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('heading', { name: /Create or edit trip/i })).toBeInTheDocument();
   });
 });

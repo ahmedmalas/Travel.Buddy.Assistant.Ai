@@ -179,7 +179,7 @@ describe('useTripStore platform slices 29-36', () => {
     expect(result.current.tripOverview.bookingCount).toBe(1);
   });
 
-  it('exports and imports v3 backups including platform fields, and migrates v2', () => {
+  it('exports and imports v4 backups including platform fields, and migrates v2', () => {
     const { result } = renderHook(() => useTripStore());
     act(() => {
       result.current.startNewTripDraft();
@@ -217,7 +217,7 @@ describe('useTripStore platform slices 29-36', () => {
     });
 
     const backupJson = result.current.toBackupJson();
-    expect(backupJson).toContain('"backupVersion": 3');
+    expect(backupJson).toContain('"backupVersion": 4');
     expect(backupJson).toContain('Oslo');
 
     act(() => {

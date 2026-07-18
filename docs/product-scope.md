@@ -42,13 +42,23 @@ Local-first backup/integrity platform:
 - Packing lists and templates
 - Traveller profiles (passport metadata fields only)
 
+### Completed in Slices 37–44 (Vault Platform)
+
+- Multi-trip vault (favourites, archive, duplicate, search/filter/sort)
+- Trip templates
+- Calendar planner with drag-and-drop scheduling
+- Document metadata + expiry reminders (attachment placeholders only)
+- Global search across vault entities
+- Collaboration foundation (local roles/permissions/audit; no backend sync)
+- Vault/template import & migration (backup v4)
+
 Details: [`docs/completed-slices.md`](completed-slices.md).
 
 ### Still placeholder / future
 
 Broader concierge modules (live destination discovery, supplier inventory, AI assistant with provider access) remain future work. Those surfaces must not pretend to have live unlimited provider access before integrations exist.
 
-Slice 37+ / AI features have not been started.
+AI features and backend collaboration sync have not been started.
 
 ## Non-goals for the baseline
 
@@ -56,4 +66,4 @@ Slice 37+ / AI features have not been started.
 - No fake airline or hotel inventory
 - No unsupported claims of complete provider access
 - No scraping or provider access unless legally and technically approved
-- No backend sync, accounts, or multi-device storage in Slices 9–28
+- No backend sync, accounts, or multi-device storage in Slices 9–44

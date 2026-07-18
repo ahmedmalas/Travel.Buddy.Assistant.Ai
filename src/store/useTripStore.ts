@@ -37,6 +37,35 @@ import {
   detectItineraryConflicts,
   summarizeItineraryByDay,
 } from './platformCalculations';
+import {
+  collectDocumentExpiryReminders,
+  filterAndSortVaultTrips,
+  filterTemplates,
+  searchVault,
+  canPerform,
+} from './vaultCalculations';
+import {
+  TEMPLATE_STORAGE_KEY,
+  VAULT_STORAGE_KEY,
+  cloneVaultTrip,
+  createVaultTrip,
+  getActiveVaultTrip,
+  migrateTemplates,
+  migrateVaultState,
+  syncActiveTripIntoVault,
+  templateFromTrip,
+  toVaultTrip,
+  tripFromTemplate,
+  validateVaultImportPayload,
+  type CollaborationMember,
+  type CollaborationRole,
+  type TripDocument,
+  type TripTemplate,
+  type TripVaultState,
+  type VaultFilterKey,
+  type VaultSortKey,
+  type VaultTrip,
+} from './vaultDomain';
 
 export type {
   Booking,
@@ -64,6 +93,8 @@ type TripBackup = {
   exportedAt: string;
   tripTitle: string;
   trip: TripData;
+  vault?: TripVaultState;
+  templates?: TripTemplate[];
 };
 
 type LegacyTripBackup = {
@@ -430,7 +461,7 @@ const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 const HISTORY_LIMIT = 50;
 const UNPINNED_SNAPSHOT_LIMIT = 10;
-const BACKUP_VERSION = 3;
+const BACKUP_VERSION = 4;
 const MIN_SUPPORTED_BACKUP_VERSION = 2;
 const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
@@ -776,6 +807,29 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
 
   const parsedObject = assertRecord(parsed, 'Backup file must contain an object.');
 
+  if ('schema' in parsedObject && parsedObject.schema === 'travel-buddy-vault-backup') {
+    const validated = validateVaultImportPayload(parsedObject);
+    if (!validated.ok) {
+      throw new Error(validated.message);
+    }
+    const trip = getActiveVaultTrip(validated.vault);
+    return {
+      trip,
+      preview: {
+        backupVersion: 'vault-v1',
+        applicationVersion:
+          typeof parsedObject.applicationVersion === 'string' ? parsedObject.applicationVersion : 'Not provided',
+        exportedAt: typeof parsedObject.exportedAt === 'string' ? parsedObject.exportedAt : 'Not provided',
+        tripTitle: `${trip.tripName} (+${Math.max(0, validated.vault.trips.length - 1)} more)`,
+        itineraryItemCount: validated.vault.trips.reduce((sum, entry) => sum + entry.stops.length, 0),
+        linkedRecordCount: validated.vault.trips.reduce(
+          (sum, entry) => sum + entry.documents.length + entry.bookings.length,
+          0,
+        ),
+      },
+    };
+  }
+
   if ('schema' in parsedObject && parsedObject.schema === 'travel-buddy-backup-v1') {
     const legacyBackup = parsedObject as Partial<LegacyTripBackup>;
     if (!isTripData(legacyBackup.trip)) {
@@ -1116,6 +1170,16 @@ const timeToMinutes = (value: string): number | null => {
   return hours * 60 + minutes;
 };
 
+const readJsonStorage = (key: string): unknown => {
+  const raw = safeReadStorageValue(key);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
 export function useTripStore() {
   const initialActiveTripStorage = parsePersistedTripStorage(safeReadStorageValue(LOCAL_STORAGE_KEY));
   const initialSnapshotStorage = parsePersistedSnapshotStorage(safeReadStorageValue(LOCAL_SNAPSHOT_STORAGE_KEY));
@@ -1126,11 +1190,19 @@ export function useTripStore() {
     safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY),
     initialIntegrityHistoryHydration.runs,
   );
+  const initialVault = migrateVaultState(readJsonStorage(VAULT_STORAGE_KEY), initialActiveTripStorage.trip);
+  const initialActiveVaultTrip = getActiveVaultTrip(initialVault);
   const [history, setHistory] = useState<HistoryState>(() => ({
     past: [],
-    present: initialActiveTripStorage.trip,
+    present: initialActiveVaultTrip,
     future: [],
   }));
+  const [vault, setVault] = useState<TripVaultState>(() => initialVault);
+  const [templates, setTemplates] = useState<TripTemplate[]>(() => migrateTemplates(readJsonStorage(TEMPLATE_STORAGE_KEY)));
+  const [vaultQuery, setVaultQuery] = useState('');
+  const [vaultFilter, setVaultFilter] = useState<VaultFilterKey>('all');
+  const [vaultSort, setVaultSort] = useState<VaultSortKey>('lastOpened');
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() => initialSnapshotStorage.snapshots);
   const [activeTripParseStatus, setActiveTripParseStatus] = useState<StorageParseStatus>(initialActiveTripStorage.parseStatus);
   const [snapshotHistoryParseStatus, setSnapshotHistoryParseStatus] = useState<StorageParseStatus>(
@@ -1259,6 +1331,24 @@ export function useTripStore() {
   useEffect(() => {
     persistActiveTrip(history.present);
   }, [history.present]);
+  useEffect(() => {
+    setVault((current) => {
+      const next = syncActiveTripIntoVault(current, history.present);
+      try {
+        window.localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        // Preserve in-memory vault if quota blocks persistence; diagnostics remain available.
+      }
+      return next;
+    });
+  }, [history.present]);
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(TEMPLATE_STORAGE_KEY, JSON.stringify(templates));
+    } catch {
+      // Ignore template persistence quota failures; templates remain in memory.
+    }
+  }, [templates]);
   useEffect(() => {
     persistSnapshotHistory(snapshots);
   }, [snapshots]);
@@ -1745,10 +1835,334 @@ export function useTripStore() {
   };
 
   const startNewTripDraft = () => {
-    replaceTrip(createEmptyTrip({ status: 'draft', activityLog: [] }), {
+    const draft = createVaultTrip({ status: 'draft', activityLog: [] });
+    setVault((current) => ({
+      ...current,
+      activeTripId: draft.id,
+      trips: [...current.trips, draft],
+    }));
+    replaceTrip(draft, {
       clearHistory: true,
       createSnapshot: true,
     });
+  };
+
+  const openVaultTrip = (tripId: string) => {
+    const target = vault.trips.find((trip) => trip.id === tripId);
+    if (!target) {
+      return { ok: false as const, message: 'Trip not found in vault.' };
+    }
+    const opened = { ...target, lastOpenedAt: new Date().toISOString() };
+    setVault((current) => ({
+      ...current,
+      activeTripId: tripId,
+      trips: current.trips.map((trip) => (trip.id === tripId ? opened : trip)),
+    }));
+    replaceTrip(opened, { clearHistory: true, createSnapshot: false });
+    return { ok: true as const, message: `Opened ${opened.tripName}.` };
+  };
+
+  const createVaultTripEntry = (overrides: Partial<VaultTrip> = {}) => {
+    const trip = createVaultTrip(overrides);
+    setVault((current) => ({
+      ...current,
+      activeTripId: trip.id,
+      trips: [...current.trips, trip],
+    }));
+    replaceTrip(trip, { clearHistory: true, createSnapshot: true });
+    return trip;
+  };
+
+  const archiveVaultTrip = (tripId: string) => {
+    setVault((current) => ({
+      ...current,
+      trips: current.trips.map((trip) =>
+        trip.id === tripId ? { ...trip, status: 'archived', updatedAt: new Date().toISOString() } : trip,
+      ),
+    }));
+    if (history.present && (history.present as VaultTrip).id === tripId) {
+      updateTrip((trip) => ({ ...trip, status: 'archived' }), { createSnapshot: true });
+    }
+  };
+
+  const duplicateVaultTrip = (tripId: string) => {
+    const source = vault.trips.find((trip) => trip.id === tripId);
+    if (!source) {
+      return { ok: false as const, message: 'Trip not found.' };
+    }
+    const duplicated = cloneVaultTrip(source, { newId: true });
+    setVault((current) => ({
+      ...current,
+      activeTripId: duplicated.id,
+      trips: [...current.trips, duplicated],
+    }));
+    replaceTrip(duplicated, { clearHistory: true, createSnapshot: true });
+    return { ok: true as const, message: `Duplicated ${source.tripName}.`, trip: duplicated };
+  };
+
+  const deleteVaultTrip = (tripId: string) => {
+    if (vault.trips.length <= 1) {
+      return { ok: false as const, message: 'Cannot delete the last trip in the vault.' };
+    }
+    const remaining = vault.trips.filter((trip) => trip.id !== tripId);
+    const nextActive =
+      vault.activeTripId === tripId
+        ? remaining[0]!
+        : remaining.find((trip) => trip.id === vault.activeTripId) ?? remaining[0]!;
+    setVault({
+      version: vault.version,
+      activeTripId: nextActive.id,
+      trips: remaining,
+    });
+    if (vault.activeTripId === tripId) {
+      replaceTrip({ ...nextActive, lastOpenedAt: new Date().toISOString() }, { clearHistory: true, createSnapshot: false });
+    }
+    return { ok: true as const, message: 'Trip deleted from vault.' };
+  };
+
+  const toggleVaultFavourite = (tripId: string) => {
+    setVault((current) => ({
+      ...current,
+      trips: current.trips.map((trip) =>
+        trip.id === tripId ? { ...trip, favourite: !trip.favourite, updatedAt: new Date().toISOString() } : trip,
+      ),
+    }));
+    if ((history.present as VaultTrip).id === tripId) {
+      updateTrip((trip) => ({ ...trip, favourite: !(trip as VaultTrip).favourite } as TripData), {
+        createSnapshot: false,
+      });
+    }
+  };
+
+  const saveTripAsTemplate = (name: string, description = '') => {
+    const template = templateFromTrip(toVaultTrip(history.present), name, description);
+    setTemplates((current) => [...current, template]);
+    return template;
+  };
+
+  const createTripFromTemplate = (templateId: string, name?: string) => {
+    const template = templates.find((entry) => entry.id === templateId);
+    if (!template) {
+      return { ok: false as const, message: 'Template not found.' };
+    }
+    const trip = tripFromTemplate(template, name);
+    setVault((current) => ({
+      ...current,
+      activeTripId: trip.id,
+      trips: [...current.trips, trip],
+    }));
+    replaceTrip(trip, { clearHistory: true, createSnapshot: true });
+    return { ok: true as const, message: `Created trip from ${template.name}.`, trip };
+  };
+
+  const deleteTripTemplate = (templateId: string) => {
+    const target = templates.find((entry) => entry.id === templateId);
+    if (!target) {
+      return { ok: false as const, message: 'Template not found.' };
+    }
+    if (target.isDefault) {
+      return { ok: false as const, message: 'Default templates cannot be deleted.' };
+    }
+    setTemplates((current) => current.filter((entry) => entry.id !== templateId));
+    return { ok: true as const, message: 'Template deleted.' };
+  };
+
+  const upsertDocument = (document: TripDocument) => {
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const exists = vaultTrip.documents.some((entry) => entry.id === document.id);
+        const documents = exists
+          ? vaultTrip.documents.map((entry) => (entry.id === document.id ? document : entry))
+          : [...vaultTrip.documents, document];
+        return appendActivity({ ...vaultTrip, documents }, `Updated document: ${document.title}.`);
+      },
+      { createSnapshot: true },
+    );
+  };
+
+  const deleteDocument = (documentId: string) => {
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const documents = vaultTrip.documents.filter((entry) => entry.id !== documentId);
+        return appendActivity({ ...vaultTrip, documents }, 'Deleted document metadata.');
+      },
+      { createSnapshot: true },
+    );
+  };
+
+  const inviteCollaborator = (input: { name: string; email: string; role: CollaborationRole }) => {
+    if (input.role === 'owner') {
+      return { ok: false as const, message: 'Owner role cannot be assigned via invite.' };
+    }
+    const member: CollaborationMember = {
+      id: crypto.randomUUID(),
+      name: input.name.trim() || 'Invitee',
+      email: input.email.trim(),
+      role: input.role,
+      invitedAt: new Date().toISOString(),
+      status: 'invited',
+    };
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const collaboration = {
+          ...vaultTrip.collaboration,
+          members: [...vaultTrip.collaboration.members, member],
+          auditHistory: [
+            {
+              id: crypto.randomUUID(),
+              at: new Date().toISOString(),
+              actorName: vaultTrip.collaboration.ownerName,
+              action: 'invite',
+              details: `Invited ${member.name} as ${member.role} (local-only, no sync).`,
+            },
+            ...vaultTrip.collaboration.auditHistory,
+          ].slice(0, 100),
+        };
+        return appendActivity({ ...vaultTrip, collaboration }, `Invited collaborator ${member.name}.`);
+      },
+      { createSnapshot: true },
+    );
+    return { ok: true as const, message: `Invited ${member.name}.` };
+  };
+
+  const updateCollaboratorRole = (memberId: string, role: CollaborationRole) => {
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const collaboration = {
+          ...vaultTrip.collaboration,
+          members: vaultTrip.collaboration.members.map((member) =>
+            member.id === memberId && member.role !== 'owner' ? { ...member, role } : member,
+          ),
+          auditHistory: [
+            {
+              id: crypto.randomUUID(),
+              at: new Date().toISOString(),
+              actorName: vaultTrip.collaboration.ownerName,
+              action: 'role-change',
+              details: `Updated role for ${memberId} to ${role}.`,
+            },
+            ...vaultTrip.collaboration.auditHistory,
+          ].slice(0, 100),
+        };
+        return { ...vaultTrip, collaboration };
+      },
+      { createSnapshot: true },
+    );
+  };
+
+  const revokeCollaborator = (memberId: string) => {
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const collaboration = {
+          ...vaultTrip.collaboration,
+          members: vaultTrip.collaboration.members.map((member) =>
+            member.id === memberId && member.role !== 'owner' ? { ...member, status: 'revoked' as const } : member,
+          ),
+          auditHistory: [
+            {
+              id: crypto.randomUUID(),
+              at: new Date().toISOString(),
+              actorName: vaultTrip.collaboration.ownerName,
+              action: 'revoke',
+              details: `Revoked access for ${memberId}.`,
+            },
+            ...vaultTrip.collaboration.auditHistory,
+          ].slice(0, 100),
+        };
+        return appendActivity({ ...vaultTrip, collaboration }, 'Revoked collaborator access.');
+      },
+      { createSnapshot: true },
+    );
+  };
+
+  const importVaultBackup = (rawValue: string, mode: 'replace' | 'merge' = 'merge') => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawValue);
+    } catch {
+      return { ok: false as const, message: 'Import file is not valid JSON.' };
+    }
+    const validated = validateVaultImportPayload(parsed);
+    if (!validated.ok) {
+      return { ok: false as const, message: validated.message };
+    }
+    const incoming = validated.vault.trips.map((trip) => toVaultTrip(trip));
+    if (incoming.length === 0) {
+      return { ok: false as const, message: 'Import contained no trips.' };
+    }
+    if (mode === 'replace') {
+      const next = {
+        version: vault.version,
+        activeTripId: incoming[0]!.id,
+        trips: incoming,
+      };
+      setVault(next);
+      replaceTrip(incoming[0]!, { clearHistory: true, createSnapshot: true });
+      return { ok: true as const, message: 'Vault replaced from import.' };
+    }
+    const mergedTrips = [...vault.trips];
+    for (const trip of incoming) {
+      if (!mergedTrips.some((entry) => entry.id === trip.id)) {
+        mergedTrips.push(trip);
+      } else {
+        mergedTrips.push({ ...trip, id: crypto.randomUUID(), tripName: `${trip.tripName} (imported)` });
+      }
+    }
+    setVault({ ...vault, trips: mergedTrips });
+    return {
+      ok: true as const,
+      message: `Merged ${incoming.length} trip(s) into vault.`,
+    };
+  };
+
+  const importTemplatesBackup = (rawValue: string) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(rawValue);
+    } catch {
+      return { ok: false as const, message: 'Template import is not valid JSON.' };
+    }
+    const list =
+      parsed && typeof parsed === 'object' && Array.isArray((parsed as { templates?: unknown }).templates)
+        ? (parsed as { templates: unknown[] }).templates
+        : Array.isArray(parsed)
+          ? parsed
+          : null;
+    if (!list) {
+      return { ok: false as const, message: 'Template import must include a templates array.' };
+    }
+    const next = migrateTemplates([...templates.filter((entry) => entry.isDefault), ...list]);
+    setTemplates(next);
+    return { ok: true as const, message: `Imported templates (${next.length} total).` };
+  };
+
+  const toVaultBackupJson = (): string =>
+    JSON.stringify(
+      {
+        schema: 'travel-buddy-vault-backup',
+        backupVersion: BACKUP_VERSION,
+        applicationVersion: APPLICATION_VERSION,
+        exportedAt: new Date().toISOString(),
+        vault,
+        templates,
+      },
+      null,
+      2,
+    );
+
+  const rescheduleStopDate = (stopId: string, date: string) => {
+    updateTrip(
+      (trip) => ({
+        ...trip,
+        stops: trip.stops.map((stop) => (stop.id === stopId ? { ...stop, date } : stop)),
+      }),
+      { createSnapshot: true },
+    );
   };
 
   const searchStops = (query: string): string[] => {
@@ -1774,6 +2188,8 @@ export function useTripStore() {
       exportedAt: now.toISOString(),
       tripTitle: history.present.tripName,
       trip: history.present,
+      vault,
+      templates,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -1802,6 +2218,8 @@ export function useTripStore() {
   const clearLocalData = () => {
     window.localStorage.removeItem(LOCAL_STORAGE_KEY);
     window.localStorage.removeItem(LOCAL_SNAPSHOT_STORAGE_KEY);
+    window.localStorage.removeItem(VAULT_STORAGE_KEY);
+    window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
     setActiveTripParseStatus('missing');
     setSnapshotHistoryParseStatus('missing');
     setActiveTripCorruption(null);
@@ -1809,15 +2227,26 @@ export function useTripStore() {
     setActiveTripRawPayloadSize(0);
     setSnapshotHistoryRawPayloadSize(0);
     setSnapshots([]);
+    const resetVault = migrateVaultState(null, cloneTrip(seededTrip));
+    setVault(resetVault);
+    setTemplates(migrateTemplates(null));
     setHistory({
       past: [],
-      present: cloneTrip(seededTrip),
+      present: getActiveVaultTrip(resetVault),
       future: [],
     });
   };
 
   const importTrip = (trip: TripData, linkedRecordCount: number | null = null) => {
-    replaceTrip(trip, { createSnapshot: true, snapshotLinkedRecordCount: linkedRecordCount });
+    const vaultTrip = toVaultTrip(trip);
+    setVault((current) => ({
+      ...current,
+      activeTripId: vaultTrip.id,
+      trips: current.trips.some((entry) => entry.id === vaultTrip.id)
+        ? current.trips.map((entry) => (entry.id === vaultTrip.id ? vaultTrip : entry))
+        : [...current.trips, vaultTrip],
+    }));
+    replaceTrip(vaultTrip, { createSnapshot: true, snapshotLinkedRecordCount: linkedRecordCount });
   };
 
   const restoreSnapshot = (snapshotId: string) => {
@@ -4171,6 +4600,21 @@ export function useTripStore() {
     () => calculateItineraryTotalCost(history.present.stops),
     [history.present.stops],
   );
+  const vaultTrips = useMemo(
+    () => filterAndSortVaultTrips(vault.trips, { query: vaultQuery, filter: vaultFilter, sort: vaultSort }),
+    [vault.trips, vaultQuery, vaultFilter, vaultSort],
+  );
+  const globalSearchResults = useMemo(
+    () => searchVault(vault.trips, globalSearchQuery),
+    [vault.trips, globalSearchQuery],
+  );
+  const documentExpiryReminders = useMemo(
+    () => collectDocumentExpiryReminders(vault.trips),
+    [vault.trips],
+  );
+  const visibleTemplates = useMemo(() => filterTemplates(templates, vaultQuery), [templates, vaultQuery]);
+  const activeVaultTrip = useMemo(() => toVaultTrip(history.present, vault.activeTripId), [history.present, vault.activeTripId]);
+  const currentUserRole: CollaborationRole = 'owner';
 
   return {
     trip: history.present,
@@ -4205,6 +4649,41 @@ export function useTripStore() {
     itineraryConflicts,
     itineraryTotalCost,
     packingTemplates: DEFAULT_PACKING_TEMPLATES,
+    vault,
+    vaultTrips,
+    vaultQuery,
+    setVaultQuery,
+    vaultFilter,
+    setVaultFilter,
+    vaultSort,
+    setVaultSort,
+    openVaultTrip,
+    createVaultTripEntry,
+    archiveVaultTrip,
+    duplicateVaultTrip,
+    deleteVaultTrip,
+    toggleVaultFavourite,
+    templates,
+    visibleTemplates,
+    saveTripAsTemplate,
+    createTripFromTemplate,
+    deleteTripTemplate,
+    upsertDocument,
+    deleteDocument,
+    documentExpiryReminders,
+    inviteCollaborator,
+    updateCollaboratorRole,
+    revokeCollaborator,
+    canPerform,
+    currentUserRole,
+    globalSearchQuery,
+    setGlobalSearchQuery,
+    globalSearchResults,
+    importVaultBackup,
+    importTemplatesBackup,
+    toVaultBackupJson,
+    rescheduleStopDate,
+    activeVaultTrip,
     undo,
     redo,
     moveStop,
@@ -4285,6 +4764,8 @@ export function useTripStore() {
     storageKeys: {
       activeTrip: LOCAL_STORAGE_KEY,
       snapshotHistory: LOCAL_SNAPSHOT_STORAGE_KEY,
+      tripVault: VAULT_STORAGE_KEY,
+      tripTemplates: TEMPLATE_STORAGE_KEY,
     },
     snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
     snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,

@@ -2,27 +2,38 @@
 
 Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform.
 
-## Verified baseline architecture (Slices 9–36)
+## Verified baseline architecture (Slices 9–44)
 
 - `src/main.ts` mounts the React application.
 - `src/App.tsx` renders the top-level app shell.
 - `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripPlatform`.
-- `src/components/trip-platform/` contains Slices 29–35 user-facing modules and tab navigation.
+- `src/components/trip-platform/` contains Slices 29–44 user-facing modules and tab navigation.
 - `src/components/TripWorkspace.tsx` remains the Slices 9–28 backup/snapshot/integrity UI (Backup & integrity tab).
 - `src/store/TripStoreContext.tsx` provides one shared `useTripStore` instance to all platform panels.
-- `src/store/tripDomain.ts` owns extended trip domain types, validation, and backup migration.
+- `src/store/tripDomain.ts` owns trip domain types, validation, and trip-level migration.
+- `src/store/vaultDomain.ts` owns multi-trip vault, templates, documents, and collaboration types/migrations.
 - `src/store/platformCalculations.ts` owns deterministic budget/packing/itinerary/overview math.
-- `src/store/useTripStore.ts` owns persistence, undo/redo, backup/snapshots, integrity, and platform CRUD.
+- `src/store/vaultCalculations.ts` owns vault filter/sort, global search, calendar helpers, expiry reminders, permissions.
+- `src/store/useTripStore.ts` owns persistence, undo/redo, backup/snapshots, integrity, platform CRUD, and vault APIs.
 - `src/store/integrityCalculations.ts` holds deterministic integrity scoring/trend/accuracy helpers.
 - `docs` records product scope, architecture, and completed-slice verification.
 
 ## Persistence model
 
-All trip, snapshot, and integrity history state persists in browser `localStorage` keys managed by `useTripStore`. There is no backend database in this baseline.
+All trip, vault, template, snapshot, and integrity history state persists in browser `localStorage` keys managed by `useTripStore`. There is no backend database in this baseline.
+
+Key localStorage keys:
+
+- `travel-buddy:trip-state:v1` — active trip
+- `travel-buddy:trip-vault:v1` — multi-trip vault
+- `travel-buddy:trip-templates:v1` — trip templates
+- `travel-buddy:trip-snapshots:v1` — snapshot history
+- integrity history / baseline / repair backup keys (Slices 9–28)
 
 Key local-first capabilities:
 
-- Trip backup schema validation and import preview
+- Trip backup schema validation and import preview (backup version **4**, supports v2+)
+- Vault backup schema `travel-buddy-vault-backup`
 - Automatic snapshot history with retention and pin protection
 - Integrity audit history, baselines, analytics, and diagnostics
 - Repair simulation with accuracy classification (`Exact Match`, `Partial Match`, `Diverged`)
@@ -31,7 +42,7 @@ Key local-first capabilities:
 
 - Vitest + Testing Library (`npm test`, `npm run test:coverage`)
 - Release gate: `npm run validate` (`typecheck` + `test` + `build`)
-- Coverage thresholds enforce a minimum automated safety net for the backup/integrity platform
+- Coverage thresholds enforce a minimum automated safety net for the backup/integrity/vault platform
 
 ## Long-term architecture direction
 
@@ -48,6 +59,7 @@ Planned integration categories include:
 - Restaurants and local experience providers
 - Tours, activities, cruises, transfers, taxis, and chauffeur services
 - User account, saved trip, booking, and document storage
+- Backend collaboration sync
 
 ## Principle
 
