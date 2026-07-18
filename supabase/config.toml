@@ -1,0 +1,19 @@
+# Travel Buddy Supabase project config (local CLI / documentation).
+# Remote migrations are applied only after the Travel Buddy project target is verified.
+
+project_id = "travel-buddy-assistant-ai"
+
+[api]
+enabled = true
+
+[db]
+major_version = 17
+
+[auth]
+enabled = true
+site_url = "http://127.0.0.1:5173"
+additional_redirect_urls = ["http://127.0.0.1:5173"]
+
+[storage]
+enabled = true
+file_size_limit = "10MiB"

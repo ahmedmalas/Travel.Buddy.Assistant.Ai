@@ -1,10 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useSharedTripStore } from '../../store/TripStoreContext';
 import { Field, Panel, PrimaryButton, SecondaryButton, StatusBanner, inputClassName } from './shared/ui';
 
 export function AuthShellPanel() {
   const {
     authState,
+    authProvider,
+    emailVerified,
     authSignIn,
     authSignUp,
     authSignOut,
@@ -12,17 +14,44 @@ export function AuthShellPanel() {
     authResetPassword,
     authEnterDemoMode,
     authSetScreen,
+    authClearError,
+    authHydrateSession,
+    cloudRuntime,
+    supabaseTargetVerification,
   } = useSharedTripStore();
   const [email, setEmail] = useState('demo@travelbuddy.local');
   const [password, setPassword] = useState('demo-demo');
   const [displayName, setDisplayName] = useState('Demo Traveller');
   const [resetToken, setResetToken] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void authHydrateSession();
+  }, []);
+
+  const run = async (action: () => Promise<unknown>) => {
+    setBusy(true);
+    try {
+      await action();
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <Panel
-      title="Authentication shell"
-      description="Local/demo auth screens only — no live auth provider is connected."
+      title="Authentication"
+      description="Live Supabase Auth when configured; otherwise local/demo mode. Session persistence and password visibility included."
     >
+      <StatusBanner
+        kind={supabaseTargetVerification.verified ? 'info' : 'error'}
+        message={
+          supabaseTargetVerification.verified
+            ? 'Supabase target verified.'
+            : `Target unverified — ${supabaseTargetVerification.reason}`
+        }
+      />
       {authState.message ? <StatusBanner kind="info" message={authState.message} /> : null}
       <div className="mt-3 flex flex-wrap gap-2">
         {(['sign-in', 'sign-up', 'forgot-password', 'reset-password', 'session'] as const).map((screen) => (
@@ -33,27 +62,41 @@ export function AuthShellPanel() {
         <SecondaryButton type="button" onClick={() => authEnterDemoMode()}>
           Demo/local mode
         </SecondaryButton>
+        <SecondaryButton type="button" onClick={() => authClearError()}>
+          Clear auth errors
+        </SecondaryButton>
       </div>
 
       <p className="mt-4 text-sm text-slate-300">
         Mode: <span className="text-white">{authState.mode}</span>
+        {' · '}
+        Provider: <span className="text-white">{authProvider}</span>
+        {' · '}
+        Env: <span className="text-white">{cloudRuntime.env.ok ? 'configured' : 'local-demo'}</span>
+        {emailVerified === null ? '' : ` · Email verified: ${emailVerified ? 'yes' : 'pending'}`}
         {authState.user ? ` · ${authState.user.displayName} (${authState.user.email})` : ' · no session user'}
       </p>
 
       {(authState.screen === 'sign-in' || authState.screen === 'sign-up' || authState.screen === 'forgot-password') && (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
           <Field label="Email" htmlFor="auth-email">
-            <input id="auth-email" className={inputClassName} value={email} onChange={(e) => setEmail(e.target.value)} />
+            <input id="auth-email" className={inputClassName} autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </Field>
           {authState.screen !== 'forgot-password' ? (
             <Field label="Password" htmlFor="auth-password">
-              <input
-                id="auth-password"
-                type="password"
-                className={inputClassName}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
+              <div className="flex gap-2">
+                <input
+                  id="auth-password"
+                  type={showPassword ? 'text' : 'password'}
+                  className={inputClassName}
+                  autoComplete={authState.screen === 'sign-up' ? 'new-password' : 'current-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+                <SecondaryButton type="button" aria-pressed={showPassword} onClick={() => setShowPassword((value) => !value)}>
+                  {showPassword ? 'Hide' : 'Show'}
+                </SecondaryButton>
+              </div>
             </Field>
           ) : null}
           {authState.screen === 'sign-up' ? (
@@ -66,7 +109,7 @@ export function AuthShellPanel() {
 
       {authState.screen === 'reset-password' ? (
         <div className="mt-4 grid gap-3 md:grid-cols-2">
-          <Field label="Reset token" htmlFor="auth-token">
+          <Field label="Reset token (local demo)" htmlFor="auth-token">
             <input
               id="auth-token"
               className={inputClassName}
@@ -75,40 +118,50 @@ export function AuthShellPanel() {
             />
           </Field>
           <Field label="New password" htmlFor="auth-new-password">
-            <input
-              id="auth-new-password"
-              type="password"
-              className={inputClassName}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
+            <div className="flex gap-2">
+              <input
+                id="auth-new-password"
+                type={showPassword ? 'text' : 'password'}
+                className={inputClassName}
+                autoComplete="new-password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+              />
+              <SecondaryButton type="button" onClick={() => setShowPassword((value) => !value)}>
+                {showPassword ? 'Hide' : 'Show'}
+              </SecondaryButton>
+            </div>
           </Field>
         </div>
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
         {authState.screen === 'sign-in' ? (
-          <PrimaryButton type="button" onClick={() => authSignIn(email, password)}>
+          <PrimaryButton type="button" disabled={busy} onClick={() => void run(() => authSignIn(email, password))}>
             Sign in
           </PrimaryButton>
         ) : null}
         {authState.screen === 'sign-up' ? (
-          <PrimaryButton type="button" onClick={() => authSignUp(email, password, displayName)}>
+          <PrimaryButton type="button" disabled={busy} onClick={() => void run(() => authSignUp(email, password, displayName))}>
             Sign up
           </PrimaryButton>
         ) : null}
         {authState.screen === 'forgot-password' ? (
-          <PrimaryButton type="button" onClick={() => authForgotPassword(email)}>
-            Send reset token
+          <PrimaryButton type="button" disabled={busy} onClick={() => void run(() => authForgotPassword(email))}>
+            Send reset email / token
           </PrimaryButton>
         ) : null}
         {authState.screen === 'reset-password' ? (
-          <PrimaryButton type="button" onClick={() => authResetPassword(resetToken || authState.resetToken || '', password)}>
+          <PrimaryButton
+            type="button"
+            disabled={busy}
+            onClick={() => void run(() => authResetPassword(resetToken || authState.resetToken || '', password))}
+          >
             Reset password
           </PrimaryButton>
         ) : null}
         {authState.screen === 'session' ? (
-          <SecondaryButton type="button" onClick={() => authSignOut()}>
+          <SecondaryButton type="button" disabled={busy} onClick={() => void run(() => authSignOut())}>
             Sign out
           </SecondaryButton>
         ) : null}

@@ -63,11 +63,23 @@ Details: [`docs/completed-slices.md`](completed-slices.md).
 - Notification centre + command centre dashboard
 - Lazy-loaded panels and release hardening
 
+### Completed in Slices 53–60 (Supabase Cloud Foundation)
+
+- Supabase client/env validation + in-repo schema/RLS/storage migrations
+- Live auth adapters with local/demo fallback
+- Cloud persistence adapters + local→cloud migration + offline fallback
+- Push/pull sync with deterministic conflict resolution
+- Collaboration cloud hooks + permission enforcement
+- Secure document storage helpers (private bucket, signed URLs)
+- Account/workspace settings, export, deletion safeguards
+
+**Note:** Remote Supabase migrations are not applied until a verified Travel Buddy project is confirmed. Local/demo mode remains default.
+
 ### Still placeholder / future
 
 Broader concierge modules (live destination discovery, supplier inventory, AI assistant with provider access) remain future work. Those surfaces must not pretend to have live unlimited provider access before integrations exist.
 
-Live auth/sync providers, Supabase connection, and AI features have not been started.
+Verified production Supabase project linkage is still pending.
 
 ## Non-goals for the baseline
 
@@ -75,4 +87,4 @@ Live auth/sync providers, Supabase connection, and AI features have not been sta
 - No fake airline or hotel inventory
 - No unsupported claims of complete provider access
 - No scraping or provider access unless legally and technically approved
-- No backend sync, accounts, or multi-device storage in Slices 9–44
+- No applying cloud migrations to unrelated Supabase projects

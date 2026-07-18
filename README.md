@@ -10,33 +10,32 @@ The long-term product vision is not a simple itinerary builder. The goal is to b
 
 - **Slices 9–28** local-first backup/integrity platform (PR #7)
 - **Slices 29–36** Trip Platform (PR #9)
-- **Slices 37–44** Vault Platform (PR #10, merge `f412d6e`)
+- **Slices 37–44** Vault Platform (PR #10)
+- **Slices 45–52** Platform Foundation (PR #12, merge `eb081af`)
 
-Active development adds **Slices 45–52** platform foundation:
+Active development adds **Slices 53–60** Supabase cloud foundation:
 
-- Store domain-module decomposition with preserved public APIs
-- Repository interfaces + localStorage provider (Supabase adapter planned, not connected)
-- Auth shell (demo/local only)
-- Sync engine foundation (queue/revisions/conflicts)
-- Collaboration lifecycle + permission enforcement
-- Notification centre and command centre dashboard
-- Lazy-loaded panels and hardening
+- Supabase client/env validation + in-repo migrations/RLS (remote apply blocked until Travel Buddy project verified)
+- Live auth adapters with local/demo fallback
+- Cloud trip persistence + local→cloud migration + offline fallback
+- Real push/pull sync with deterministic conflict resolution
+- Collaboration cloud hooks + permission enforcement
+- Secure document storage helpers (private bucket, signed URLs)
+- Account/workspace settings + export + deletion safeguards
 
-Verified Vault Platform capabilities already on `main`:
-
-- Multi-trip vault with favourites, archive, duplicate, search/filter/sort
-- Trip templates (defaults + save/create/manage)
-- Calendar planner (month/week/day, drag-and-drop, conflicts)
-- Document metadata + expiry reminders (no file uploads)
-- Global search across vault entities
-- Collaboration foundation (local roles/permissions/audit; no backend sync)
-- Vault/template import & migration (backup version **4**)
-- Shared `useTripStore` persistence with compatibility for snapshots/diagnostics/integrity
-- Vitest + Testing Library automation with `npm run validate`
+Local/demo mode remains the default and preserves all Slices 9–52 behaviour.
 
 See [`docs/completed-slices.md`](docs/completed-slices.md) for the full slice inventory and verification notes.
 
-This baseline remains **local-first**. It does not claim live provider inventory, cloud sync, accounts, or booking execution.
+## Supabase configuration
+
+Copy `.env.example` to `.env.local` and set:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (publishable/anon only — never service role)
+- optional `VITE_SUPABASE_PROJECT_REF`
+
+SQL migrations live in `supabase/migrations/`. Do not apply them to unrelated projects.
 
 ## Scripts
 
@@ -56,7 +55,8 @@ Current verified surfaces:
 
 - Multi-trip vault and templates
 - Trip itinerary + calendar planning (local)
-- Bookings, budget, packing, travellers, documents (metadata)
+- Bookings, budget, packing, travellers, documents
+- Command centre, notifications, auth, sync, account settings
 - Backup / import / export / vault migration
 - Snapshot history and restore
 - Storage diagnostics and integrity audit/repair
@@ -65,7 +65,7 @@ Placeholder product areas still ahead of live integrations:
 
 - Destination discovery with live inventory
 - AI travel assistant with live supplier access
-- Backend collaboration sync
+- Verified remote Supabase project linkage for production cloud mode
 
 ## Integration direction
 

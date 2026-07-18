@@ -7,20 +7,22 @@ describe('useTripStore foundation slices 45-52', () => {
     localStorage.clear();
   });
 
-  it('exposes repository contracts, auth shell, sync queue, notifications and command centre', () => {
+  it('exposes repository contracts, auth shell, sync queue, notifications and command centre', async () => {
     const { result } = renderHook(() => useTripStore());
     expect(result.current.repositories.trips).toBeTruthy();
-    expect(result.current.cloudAdapterPlan.status).toBe('not-connected');
+    expect(result.current.cloudAdapterPlan.status).toBe('target-unverified');
     expect(result.current.storageKeyCatalog.activeTrip).toContain('trip-state');
 
-    act(() => {
-      result.current.authSignIn('sam@example.com', 'password');
+    await act(async () => {
+      await result.current.authSignIn('sam@example.com', 'password');
     });
     expect(result.current.authState.mode).toBe('signed-in');
 
     act(() => {
       result.current.queueEntityChange('trip', result.current.activeVaultTrip.id, { ok: true }, result.current.activeVaultTrip.id);
-      result.current.runSync();
+    });
+    await act(async () => {
+      await result.current.runSync();
     });
     expect(result.current.syncSummary.synced).toBeGreaterThan(0);
 

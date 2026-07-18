@@ -1,52 +1,57 @@
 # Architecture
 
-Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform.
+Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform and optional Supabase cloud adapters (Slices 53–60).
 
-## Verified baseline architecture (Slices 9–52)
+## Verified baseline architecture (Slices 9–60)
 
 - `src/main.ts` mounts the React application.
 - `src/App.tsx` renders the top-level app shell.
 - `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripPlatform`.
-- `src/components/trip-platform/` contains Slices 29–52 user-facing modules; heavy panels are lazy-loaded.
+- `src/components/trip-platform/` contains Slices 29–60 user-facing modules; heavy panels are lazy-loaded.
 - `src/components/TripWorkspace.tsx` remains the Slices 9–28 backup/snapshot/integrity UI (Backup & integrity tab).
 - `src/store/TripStoreContext.tsx` provides one shared `useTripStore` instance to all platform panels.
 - `src/store/storeConstants.ts` centralises storage keys and backup/version constants.
 - `src/store/modules/` indexes extracted domain modules for Slice 45 decomposition.
 - `src/store/tripDomain.ts` owns trip domain types, validation, and trip-level migration.
 - `src/store/vaultDomain.ts` owns multi-trip vault, templates, documents, and collaboration types/migrations.
-- `src/store/repositories/` defines cloud-ready repository interfaces with a localStorage provider (Supabase planned, not connected).
-- `src/store/auth/`, `sync/`, `notifications/`, `commandCentre/`, `collaboration/` hold foundation modules for Slices 47–51.
-- `src/store/platformCalculations.ts` owns deterministic budget/packing/itinerary/overview math.
-- `src/store/vaultCalculations.ts` owns vault filter/sort, global search, calendar helpers, expiry reminders, permissions.
-- `src/store/useTripStore.ts` orchestrates persistence, undo/redo, backup/snapshots, integrity, vault, and foundation APIs.
-- `src/store/integrityCalculations.ts` holds deterministic integrity scoring/trend/accuracy helpers.
+- `src/store/repositories/` defines repository interfaces with localStorage + Supabase providers.
+- `src/lib/supabase/` owns env validation and the typed Supabase client factory.
+- `supabase/migrations/` holds schema, RLS, and private storage SQL (apply only to a verified Travel Buddy project).
+- `src/store/auth/`, `sync/`, `notifications/`, `commandCentre/`, `collaboration/`, `documents/`, `settings/` hold Slices 47–60 modules.
+- `src/store/useTripStore.ts` orchestrates persistence, undo/redo, backup/snapshots, integrity, vault, and cloud APIs.
 - `docs` records product scope, architecture, and completed-slice verification.
 
 ## Persistence model
 
-All trip, vault, template, snapshot, and integrity history state persists in browser `localStorage` keys managed by `useTripStore`. There is no backend database in this baseline.
+### Local-first (default)
 
-Key localStorage keys:
+All trip, vault, template, snapshot, and integrity history state persists in browser `localStorage` keys managed by `useTripStore`. Local/demo mode remains fully functional without Supabase env vars.
 
-- `travel-buddy:trip-state:v1` — active trip
-- `travel-buddy:trip-vault:v1` — multi-trip vault
-- `travel-buddy:trip-templates:v1` — trip templates
-- `travel-buddy:trip-snapshots:v1` — snapshot history
-- integrity history / baseline / repair backup keys (Slices 9–28)
+### Optional Supabase cloud
 
-Key local-first capabilities:
+When `VITE_SUPABASE_URL` + `VITE_SUPABASE_ANON_KEY` are present, the app can:
 
-- Trip backup schema validation and import preview (backup version **4**, supports v2+)
-- Vault backup schema `travel-buddy-vault-backup`
-- Automatic snapshot history with retention and pin protection
-- Integrity audit history, baselines, analytics, and diagnostics
-- Repair simulation with accuracy classification (`Exact Match`, `Partial Match`, `Diverged`)
+- Authenticate via Supabase Auth (with local fallback)
+- Persist vault trips/templates through `createSupabaseDataRepositories`
+- Push/pull sync revisions
+- Store private document binaries in the `travel-documents` bucket (signed URLs)
+- Sync account/profile preferences to `profiles`
+
+**Important:** During Slices 53–60 delivery, no approved Travel Buddy Supabase project was verified among accessible organisations/projects. Remote migrations were therefore **not** applied. SQL is versioned in-repo for a future verified target.
+
+## Security model
+
+- Only publishable anon keys belong in the Vite client (see `.env.example`).
+- Service-role keys must never be shipped to the browser.
+- RLS policies in migrations enforce owner/editor/viewer access for trips, collaborators, documents, and storage objects.
+- Document uploads validate MIME type and 10MB size limits before storage operations.
+- Account deletion requires explicit confirmation and blocks when trips/sync queues remain.
 
 ## Validation architecture
 
 - Vitest + Testing Library (`npm test`, `npm run test:coverage`)
 - Release gate: `npm run validate` (`typecheck` + `test` + `build`)
-- Coverage thresholds enforce a minimum automated safety net for the backup/integrity/vault platform
+- Coverage thresholds enforce a minimum automated safety net for the backup/integrity/vault/cloud foundation
 
 ## Long-term architecture direction
 
@@ -62,9 +67,7 @@ Planned integration categories include:
 - Booking agents and affiliate providers
 - Restaurants and local experience providers
 - Tours, activities, cruises, transfers, taxis, and chauffeur services
-- User account, saved trip, booking, and document storage
-- Backend collaboration sync
 
 ## Principle
 
-The MVP should clearly separate available functionality from future planned integrations. Do not claim live provider access until integrations are actually implemented and verified.
+The MVP should clearly separate available functionality from future planned integrations. Do not claim live provider access until integrations are actually implemented and verified against an approved project.
