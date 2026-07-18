@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useSharedTripStore } from '../store/TripStoreContext';
 import {
-  useTripStore,
   type BackupSnapshot,
   type IntegrityTrendWindow,
   type IntegrityHistoryImportPreview,
@@ -8,7 +8,7 @@ import {
   type SnapshotCleanupMode,
   type SnapshotHistoryImportPreview,
   type TripData,
-} from '../store/useTripStore';
+} from '../store/TripStoreContext';
 import {
   buildDeepComparison,
   formatBytes,
@@ -115,7 +115,7 @@ export function TripWorkspace() {
     toIntegrityReportJson,
     storageHealth,
     storageKeys,
-  } = useTripStore();
+  } = useSharedTripStore();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
@@ -145,7 +145,7 @@ export function TripWorkspace() {
   const [pendingRepairConfirmation, setPendingRepairConfirmation] = useState(false);
   const [pendingAuditHistoryImport, setPendingAuditHistoryImport] = useState<{
     preview: IntegrityHistoryImportPreview;
-    runs: ReturnType<typeof useTripStore>['integrityAuditRuns'];
+    runs: ReturnType<typeof useSharedTripStore>['integrityAuditRuns'];
     baselineRunId: string | null;
     fileName: string;
   } | null>(null);
@@ -857,7 +857,7 @@ export function TripWorkspace() {
         <div className="mt-5 flex flex-wrap gap-2">
           <button
             type="button"
-            onClick={addStop}
+            onClick={() => addStop()}
             className="rounded-full bg-sky-400/15 px-4 py-2 text-sm text-sky-100 transition hover:bg-sky-400/25"
           >
             Add itinerary item

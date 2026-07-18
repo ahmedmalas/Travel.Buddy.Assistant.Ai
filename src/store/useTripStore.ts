@@ -9,19 +9,53 @@ import {
   getTrendWindowRuns,
   roundToTwo,
 } from './integrityCalculations';
+import {
+  appendActivity,
+  cloneTrip,
+  createDefaultPackingList,
+  createEmptyTrip,
+  createSeededTrip,
+  DEFAULT_PACKING_TEMPLATES,
+  isLegacyTripShape,
+  migrateTrip,
+  sanitizeTrip,
+  validateTripSetup,
+  type Booking,
+  type Expense,
+  type PackingItem,
+  type PackingList,
+  type TripData,
+  type TripSetupInput,
+  type TripStop,
+  type Traveller,
+} from './tripDomain';
+import {
+  buildTripOverview,
+  calculateBudgetSummary,
+  calculateItineraryTotalCost,
+  calculatePackingProgress,
+  detectItineraryConflicts,
+  summarizeItineraryByDay,
+} from './platformCalculations';
 
-export type TripStop = {
-  id: string;
-  title: string;
-  day: number;
-  order: number;
-  notes: string;
-};
-
-export type TripData = {
-  tripName: string;
-  stops: TripStop[];
-};
+export type {
+  Booking,
+  Expense,
+  PackingItem,
+  PackingList,
+  TripData,
+  TripSetupInput,
+  TripStop,
+  Traveller,
+} from './tripDomain';
+export { validateTripSetup } from './tripDomain';
+export {
+  buildTripOverview,
+  calculateBudgetSummary,
+  calculatePackingProgress,
+  detectItineraryConflicts,
+  summarizeItineraryByDay,
+} from './platformCalculations';
 
 type TripBackup = {
   schema: 'travel-buddy-backup';
@@ -396,7 +430,8 @@ const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 const HISTORY_LIMIT = 50;
 const UNPINNED_SNAPSHOT_LIMIT = 10;
-const BACKUP_VERSION = 2;
+const BACKUP_VERSION = 3;
+const MIN_SUPPORTED_BACKUP_VERSION = 2;
 const SNAPSHOT_HISTORY_VERSION = 1;
 const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
 const SNAPSHOT_LABEL_LIMIT = 60;
@@ -438,45 +473,9 @@ const createCorruptionState = (
   detectedAt: new Date().toISOString(),
 });
 
-const seededTrip: TripData = {
-  tripName: 'Japan Discovery',
-  stops: [
-    { id: 's1', title: 'Arrive in Tokyo', day: 1, order: 1, notes: 'Narita transfer and hotel check-in' },
-    { id: 's2', title: 'Asakusa and Senso-ji', day: 1, order: 2, notes: 'Evening street food walk' },
-    { id: 's3', title: 'Kyoto day trip', day: 2, order: 1, notes: 'Shinkansen + temple route' },
-  ],
-};
+const seededTrip: TripData = createSeededTrip();
 
-const isTripStop = (value: unknown): value is TripStop => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const stop = value as Partial<TripStop>;
-  return (
-    typeof stop.id === 'string' &&
-    typeof stop.title === 'string' &&
-    typeof stop.notes === 'string' &&
-    typeof stop.day === 'number' &&
-    Number.isInteger(stop.day) &&
-    stop.day > 0 &&
-    typeof stop.order === 'number' &&
-    Number.isInteger(stop.order) &&
-    stop.order > 0
-  );
-};
-
-const isTripData = (value: unknown): value is TripData => {
-  if (!value || typeof value !== 'object') {
-    return false;
-  }
-  const trip = value as Partial<TripData>;
-  return typeof trip.tripName === 'string' && Array.isArray(trip.stops) && trip.stops.every(isTripStop);
-};
-
-const cloneTrip = (trip: TripData): TripData => ({
-  tripName: trip.tripName,
-  stops: trip.stops.map((stop) => ({ ...stop })),
-});
+const isTripData = (value: unknown): value is TripData => isLegacyTripShape(value);
 
 type ParsedActiveTripStorage = {
   trip: TripData;
@@ -689,7 +688,10 @@ const dedupe = (items: string[]): string[] => Array.from(new Set(items));
 const buildSearchIndex = (trip: TripData): Map<string, string[]> => {
   const index = new Map<string, string[]>();
   for (const stop of trip.stops) {
-    const tokens = `${stop.title} ${stop.notes}`.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+    const tokens = `${stop.title} ${stop.notes} ${stop.location} ${stop.category} ${stop.bookingReference}`
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter(Boolean);
     for (const token of dedupe(tokens)) {
       const existing = index.get(token) ?? [];
       index.set(token, dedupe([...existing, stop.id]));
@@ -711,15 +713,6 @@ const sortStops = (stops: TripStop[]): TripStop[] =>
     }
     return a.order - b.order;
   });
-
-const sanitizeTrip = (trip: TripData): TripData => ({
-  tripName: trip.tripName.trim() || 'Untitled Trip',
-  stops: sortStops(trip.stops).map((stop) => ({
-    ...stop,
-    title: stop.title.trim(),
-    notes: stop.notes.trim(),
-  })),
-});
 
 const assertRecord = (value: unknown, message: string): Record<string, unknown> => {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -828,7 +821,7 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
   if (!Number.isInteger(backupVersion)) {
     throw new Error('Backup version must be an integer.');
   }
-  if (backupVersion !== BACKUP_VERSION) {
+  if (backupVersion < MIN_SUPPORTED_BACKUP_VERSION || backupVersion > BACKUP_VERSION) {
     throw new Error(`Backup version ${backupVersion} is not supported by this app.`);
   }
 
@@ -840,7 +833,7 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
     throw new Error('Trip data structure is malformed or missing required fields.');
   }
 
-  const trip = sanitizeTrip(parsedObject.trip);
+  const trip = sanitizeTrip(migrateTrip(parsedObject.trip));
   return {
     trip,
     preview: {
@@ -1400,38 +1393,77 @@ export function useTripStore() {
     }, { createSnapshot: true });
   };
 
-  const addStop = () => {
+  const addStop = (partial?: Partial<TripStop>) => {
     updateTrip((trip) => {
       const maxDay = trip.stops.reduce((max, stop) => Math.max(max, stop.day), 1);
-      const nextOrder = trip.stops.filter((stop) => stop.day === maxDay).length + 1;
-      return {
-        ...trip,
-        stops: [
-          ...trip.stops,
-          {
-            id: `s-${crypto.randomUUID()}`,
-            title: 'New itinerary item',
-            day: maxDay,
-            order: nextOrder,
-            notes: 'Update this activity',
-          },
-        ],
-      };
+      const day = partial?.day ?? maxDay;
+      const nextOrder = trip.stops.filter((stop) => stop.day === day).length + 1;
+      const date =
+        partial?.date ||
+        trip.departureDate ||
+        trip.stops.find((stop) => stop.day === day)?.date ||
+        '';
+      return appendActivity(
+        {
+          ...trip,
+          stops: [
+            ...trip.stops,
+            {
+              id: `s-${crypto.randomUUID()}`,
+              title: partial?.title?.trim() || 'New itinerary item',
+              day,
+              order: partial?.order ?? nextOrder,
+              notes: partial?.notes ?? '',
+              date,
+              startTime: partial?.startTime ?? '',
+              endTime: partial?.endTime ?? '',
+              location: partial?.location ?? '',
+              category: partial?.category ?? 'other',
+              cost: partial?.cost ?? 0,
+              currency: partial?.currency ?? trip.currency,
+              bookingReference: partial?.bookingReference ?? '',
+            },
+          ],
+        },
+        'Added itinerary item.',
+      );
     }, { createSnapshot: true });
   };
 
   const editStop = (stopId: string, title: string, notes: string) => {
-    updateTrip((trip) => ({
-      ...trip,
-      stops: trip.stops.map((stop) => (stop.id === stopId ? { ...stop, title, notes } : stop)),
-    }), { createSnapshot: true });
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          stops: trip.stops.map((stop) => (stop.id === stopId ? { ...stop, title, notes } : stop)),
+        },
+        'Updated itinerary item.',
+      ),
+    { createSnapshot: true });
+  };
+
+  const updateStopDetails = (stopId: string, updates: Partial<TripStop>) => {
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          stops: trip.stops.map((stop) => (stop.id === stopId ? { ...stop, ...updates, id: stop.id } : stop)),
+        },
+        'Updated itinerary item details.',
+      ),
+    { createSnapshot: true });
   };
 
   const deleteStop = (stopId: string) => {
-    updateTrip((trip) => ({
-      ...trip,
-      stops: trip.stops.filter((stop) => stop.id !== stopId),
-    }), { createSnapshot: true });
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          stops: trip.stops.filter((stop) => stop.id !== stopId),
+        },
+        'Deleted itinerary item.',
+      ),
+    { createSnapshot: true });
   };
 
   const duplicateStop = (stopId: string) => {
@@ -1443,19 +1475,280 @@ export function useTripStore() {
       }
       const dayStops = stops.filter((stop) => stop.day === target.day);
       const maxOrder = dayStops.reduce((max, stop) => Math.max(max, stop.order), 0);
-      return {
-        ...trip,
-        stops: [
-          ...trip.stops,
-          {
-            ...target,
-            id: `s-${crypto.randomUUID()}`,
-            order: maxOrder + 1,
-            title: `${target.title} (copy)`,
-          },
-        ],
-      };
+      return appendActivity(
+        {
+          ...trip,
+          stops: [
+            ...trip.stops,
+            {
+              ...target,
+              id: `s-${crypto.randomUUID()}`,
+              order: maxOrder + 1,
+              title: `${target.title} (copy)`,
+            },
+          ],
+        },
+        'Duplicated itinerary item.',
+      );
     }, { createSnapshot: true });
+  };
+
+  const reorderStop = (stopId: string, direction: 'up' | 'down') => {
+    moveStop(stopId, direction);
+  };
+
+  const saveTripSetup = (input: TripSetupInput): { ok: boolean; errors: ReturnType<typeof validateTripSetup> } => {
+    const errors = validateTripSetup(input);
+    if (Object.keys(errors).length > 0) {
+      return { ok: false, errors };
+    }
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            tripName: input.tripName.trim(),
+            destination: input.destination.trim(),
+            departureDate: input.departureDate,
+            returnDate: input.returnDate,
+            travellerCount: input.travellerCount,
+            purpose: input.purpose,
+            budget: input.budget,
+            currency: input.currency.trim().toUpperCase(),
+            notes: input.notes.trim(),
+            status: input.status ?? trip.status,
+          },
+          'Saved trip setup.',
+        ),
+      { createSnapshot: true },
+    );
+    return { ok: true, errors: {} };
+  };
+
+  const createDraftTrip = (input: TripSetupInput) => saveTripSetup({ ...input, status: 'draft' });
+
+  const updatePlannedBudget = (budget: number, currency?: string) => {
+    if (!Number.isFinite(budget) || budget < 0) {
+      return { ok: false as const, message: 'Budget must be zero or greater.' };
+    }
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            budget,
+            currency: (currency ?? trip.currency).trim().toUpperCase() || trip.currency,
+          },
+          'Updated planned budget.',
+        ),
+      { createSnapshot: true },
+    );
+    return { ok: true as const, message: 'Planned budget updated.' };
+  };
+
+  const upsertBooking = (booking: Booking) => {
+    updateTrip((trip) => {
+      const exists = trip.bookings.some((item) => item.id === booking.id);
+      return appendActivity(
+        {
+          ...trip,
+          bookings: exists
+            ? trip.bookings.map((item) => (item.id === booking.id ? booking : item))
+            : [...trip.bookings, booking],
+        },
+        exists ? 'Updated booking.' : 'Added booking.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const deleteBooking = (bookingId: string) => {
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            bookings: trip.bookings.filter((booking) => booking.id !== bookingId),
+          },
+          'Deleted booking.',
+        ),
+      { createSnapshot: true },
+    );
+  };
+
+  const upsertExpense = (expense: Expense) => {
+    updateTrip((trip) => {
+      const exists = trip.expenses.some((item) => item.id === expense.id);
+      return appendActivity(
+        {
+          ...trip,
+          expenses: exists
+            ? trip.expenses.map((item) => (item.id === expense.id ? expense : item))
+            : [...trip.expenses, expense],
+        },
+        exists ? 'Updated expense.' : 'Added expense.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const deleteExpense = (expenseId: string) => {
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            expenses: trip.expenses.filter((expense) => expense.id !== expenseId),
+          },
+          'Deleted expense.',
+        ),
+      { createSnapshot: true },
+    );
+  };
+
+  const upsertPackingList = (list: PackingList) => {
+    updateTrip((trip) => {
+      const exists = trip.packingLists.some((item) => item.id === list.id);
+      return appendActivity(
+        {
+          ...trip,
+          packingLists: exists
+            ? trip.packingLists.map((item) => (item.id === list.id ? list : item))
+            : [...trip.packingLists, list],
+        },
+        exists ? 'Updated packing list.' : 'Added packing list.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const deletePackingList = (listId: string) => {
+    updateTrip((trip) => {
+      const remaining = trip.packingLists.filter((list) => list.id !== listId);
+      return appendActivity(
+        {
+          ...trip,
+          packingLists: remaining.length > 0 ? remaining : [createDefaultPackingList()],
+        },
+        'Deleted packing list.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const upsertPackingItem = (listId: string, item: PackingItem) => {
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          packingLists: trip.packingLists.map((list) => {
+            if (list.id !== listId) {
+              return list;
+            }
+            const exists = list.items.some((entry) => entry.id === item.id);
+            return {
+              ...list,
+              items: exists
+                ? list.items.map((entry) => (entry.id === item.id ? item : entry))
+                : [...list.items, item],
+            };
+          }),
+        },
+        'Updated packing item.',
+      ),
+    { createSnapshot: true });
+  };
+
+  const deletePackingItem = (listId: string, itemId: string) => {
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          packingLists: trip.packingLists.map((list) =>
+            list.id === listId
+              ? { ...list, items: list.items.filter((item) => item.id !== itemId) }
+              : list,
+          ),
+        },
+        'Deleted packing item.',
+      ),
+    { createSnapshot: true });
+  };
+
+  const applyPackingTemplate = (listId: string, templateKey: string) => {
+    const template = DEFAULT_PACKING_TEMPLATES.find((entry) => entry.key === templateKey);
+    if (!template) {
+      return;
+    }
+    updateTrip((trip) =>
+      appendActivity(
+        {
+          ...trip,
+          packingLists: trip.packingLists.map((list) => {
+            if (list.id !== listId) {
+              return list;
+            }
+            return {
+              ...list,
+              name: list.name || template.name,
+              templateKey,
+              items: [
+                ...list.items,
+                ...template.items.map((item) => ({
+                  id: crypto.randomUUID(),
+                  name: item.name,
+                  category: item.category,
+                  customCategory: '',
+                  quantity: item.quantity,
+                  packed: false,
+                  assignedTravellerId: null,
+                })),
+              ],
+            };
+          }),
+        },
+        `Applied packing template: ${template.name}.`,
+      ),
+    { createSnapshot: true });
+  };
+
+  const upsertTraveller = (traveller: Traveller) => {
+    updateTrip((trip) => {
+      const exists = trip.travellers.some((item) => item.id === traveller.id);
+      return appendActivity(
+        {
+          ...trip,
+          travellers: exists
+            ? trip.travellers.map((item) => (item.id === traveller.id ? traveller : item))
+            : [...trip.travellers, traveller],
+          travellerCount: Math.max(trip.travellerCount, exists ? trip.travellerCount : trip.travellers.length + 1),
+        },
+        exists ? 'Updated traveller profile.' : 'Added traveller profile.',
+      );
+    }, { createSnapshot: true });
+  };
+
+  const deleteTraveller = (travellerId: string) => {
+    updateTrip(
+      (trip) =>
+        appendActivity(
+          {
+            ...trip,
+            travellers: trip.travellers.filter((traveller) => traveller.id !== travellerId),
+            packingLists: trip.packingLists.map((list) => ({
+              ...list,
+              items: list.items.map((item) =>
+                item.assignedTravellerId === travellerId ? { ...item, assignedTravellerId: null } : item,
+              ),
+            })),
+          },
+          'Deleted traveller profile.',
+        ),
+      { createSnapshot: true },
+    );
+  };
+
+  const startNewTripDraft = () => {
+    replaceTrip(createEmptyTrip({ status: 'draft', activityLog: [] }), {
+      clearHistory: true,
+      createSnapshot: true,
+    });
   };
 
   const searchStops = (query: string): string[] => {
@@ -3866,6 +4159,19 @@ export function useTripStore() {
       2,
     );
 
+  const tripOverview = useMemo(() => buildTripOverview(history.present), [history.present]);
+  const budgetSummary = useMemo(() => calculateBudgetSummary(history.present), [history.present]);
+  const packingProgress = useMemo(
+    () => calculatePackingProgress(history.present.packingLists),
+    [history.present.packingLists],
+  );
+  const itineraryDays = useMemo(() => summarizeItineraryByDay(history.present.stops), [history.present.stops]);
+  const itineraryConflicts = useMemo(() => detectItineraryConflicts(history.present.stops), [history.present.stops]);
+  const itineraryTotalCost = useMemo(
+    () => calculateItineraryTotalCost(history.present.stops),
+    [history.present.stops],
+  );
+
   return {
     trip: history.present,
     canUndo: history.past.length > 0,
@@ -3873,8 +4179,32 @@ export function useTripStore() {
     sortedStops: sortStops(history.present.stops),
     addStop,
     editStop,
+    updateStopDetails,
     deleteStop,
     duplicateStop,
+    reorderStop,
+    saveTripSetup,
+    createDraftTrip,
+    updatePlannedBudget,
+    startNewTripDraft,
+    upsertBooking,
+    deleteBooking,
+    upsertExpense,
+    deleteExpense,
+    upsertPackingList,
+    deletePackingList,
+    upsertPackingItem,
+    deletePackingItem,
+    applyPackingTemplate,
+    upsertTraveller,
+    deleteTraveller,
+    tripOverview,
+    budgetSummary,
+    packingProgress,
+    itineraryDays,
+    itineraryConflicts,
+    itineraryTotalCost,
+    packingTemplates: DEFAULT_PACKING_TEMPLATES,
     undo,
     redo,
     moveStop,

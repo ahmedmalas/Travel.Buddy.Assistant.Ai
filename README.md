@@ -6,14 +6,15 @@ The long-term product vision is not a simple itinerary builder. The goal is to b
 
 ## Current verified baseline
 
-`main` now includes the completed **Slices 9–28** local-first Trip Workspace platform (merged via PR #7):
+`main` includes the completed **Slices 9–28** local-first backup/integrity platform (PR #7).
+
+Active development adds **Slices 29–36** Trip Platform capabilities on top of the same store:
 
 - React + Vite + TypeScript + Tailwind CSS
-- Local trip itinerary workspace (`TripWorkspace` + `useTripStore`)
-- Backup import/export with preview and version validation
-- Snapshot history, comparison, labels/notes, pin/retention, cleanup
-- Storage health, diagnostics, and corruption recovery
-- Integrity audit, selective repair, simulation accuracy, and diagnostics
+- Trip setup, overview dashboard, day-by-day itinerary
+- Bookings, budget tracker, packing lists, traveller profiles
+- Shared `useTripStore` persistence + backup version 3 migration
+- Backup/snapshot/integrity tooling preserved under Backup & integrity
 - Vitest + Testing Library automation with `npm run validate`
 
 See [`docs/completed-slices.md`](docs/completed-slices.md) for the full slice inventory and verification notes.
