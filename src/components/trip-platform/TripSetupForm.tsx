@@ -9,7 +9,7 @@ import { useSharedTripStore } from '../../store/TripStoreContext';
 import { Field, Panel, PrimaryButton, SecondaryButton, StatusBanner, inputClassName } from './shared/ui';
 
 export function TripSetupForm() {
-  const { trip, saveTripSetup, createDraftTrip, startNewTripDraft } = useSharedTripStore();
+  const { trip, saveTripSetup, createDraftTrip, startNewTripDraft, canEditTrip } = useSharedTripStore();
   const [form, setForm] = useState<TripSetupInput>({
     tripName: trip.tripName,
     destination: trip.destination,
@@ -58,13 +58,13 @@ export function TripSetupForm() {
       description="Set up the core trip details. Everything saves into the existing local-first trip store."
       actions={
         <>
-          <SecondaryButton type="button" onClick={() => startNewTripDraft()}>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={() => startNewTripDraft()}>
             New blank trip
           </SecondaryButton>
-          <SecondaryButton type="button" onClick={() => handleSave(true)}>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={() => handleSave(true)}>
             Save draft
           </SecondaryButton>
-          <PrimaryButton type="button" onClick={() => handleSave(false)}>
+          <PrimaryButton type="button" disabled={!canEditTrip} onClick={() => handleSave(false)}>
             Save trip
           </PrimaryButton>
         </>

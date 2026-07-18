@@ -61,13 +61,31 @@ Extends the same `useTripStore` with multi-trip vault storage (backup version **
 | 43 | Import & migration (vault/trip backups, templates, validation, recovery) |
 | 44 | Production hardening (a11y/responsive polish, regression tests, docs) |
 
+## Slices 45–52 (Platform Foundation)
+
+Implemented on branch `cursor/slices-45-52-platform-foundation-03b5`.
+
+| Slice | Capability |
+|------:|------------|
+| 45 | Store decomposition into domain modules (`storeConstants`, `modules/`, repositories, auth/sync/notifications/command centre) while preserving `useTripStore` public API |
+| 46 | Cloud-ready repository interfaces with localStorage provider; Supabase adapter plan documented, not connected |
+| 47 | Authentication shell (sign in/up, forgot/reset, session, demo/local mode) — no live auth provider |
+| 48 | Sync engine foundation (queue, revisions, conflicts, retry, offline/online, manual sync) |
+| 49 | Collaboration upgrade (pending/accepted/revoked/expired lifecycle, permission enforcement) |
+| 50 | Notification centre (departures, docs, unpaid, bookings, conflicts, packing; read/dismiss) |
+| 51 | Command centre dashboard (all-trips summary, alerts, budgets, quick actions, responsive) |
+| 52 | Hardening (lazy-loaded panels, a11y tab nav, regression tests, docs) |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
 - Domain model + migration in `src/store/tripDomain.ts`
 - Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
+- Extracted constants in `src/store/storeConstants.ts`; module index in `src/store/modules/`
+- Repository contracts in `src/store/repositories/` (local provider active)
+- Auth/sync/notifications/command-centre modules under `src/store/{auth,sync,notifications,commandCentre,collaboration}/`
 - Deterministic calculations in `src/store/platformCalculations.ts`
-- UI modules under `src/components/trip-platform/`
+- UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels)
 - Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
 
 ## Validation gate

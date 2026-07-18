@@ -96,7 +96,7 @@ export const createDefaultCollaboration = (ownerName = 'Local Owner', ownerEmail
       email: ownerEmail,
       role: 'owner',
       invitedAt: new Date().toISOString(),
-      status: 'active',
+      status: 'accepted',
     },
   ],
   auditHistory: [
@@ -159,9 +159,18 @@ export const sanitizeCollaboration = (value: unknown): CollaborationState => {
             : 'viewer',
           invitedAt: asString(item.invitedAt, new Date().toISOString()),
           status:
-            item.status === 'active' || item.status === 'invited' || item.status === 'revoked'
-              ? item.status
-              : 'invited',
+            item.status === 'pending' ||
+            item.status === 'accepted' ||
+            item.status === 'revoked' ||
+            item.status === 'expired' ||
+            item.status === 'active' ||
+            item.status === 'invited'
+              ? item.status === 'invited'
+                ? 'pending'
+                : item.status === 'active'
+                  ? 'accepted'
+                  : item.status
+              : 'pending',
         };
       })
     : createDefaultCollaboration(ownerName, ownerEmail).members;

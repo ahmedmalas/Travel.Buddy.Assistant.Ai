@@ -13,26 +13,26 @@ describe('TripPlatform deep coverage', () => {
     cleanup()
   })
 
-  it('supports itinerary CRUD, packing, travellers, and budget expense edits', () => {
+  it('supports itinerary CRUD, packing, travellers, and budget expense edits', async () => {
     render(<TripPlatform />)
 
     fireEvent.click(screen.getByRole('tab', { name: 'Itinerary' }))
-    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Museum' } })
+    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Museum' } })
     fireEvent.change(screen.getByLabelText('Start'), { target: { value: '10:00' } })
     fireEvent.change(screen.getByLabelText('End'), { target: { value: '12:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add itinerary item' }))
-    expect(screen.getByText('Museum')).toBeTruthy()
+    expect(await screen.findByText('Museum')).toBeTruthy()
 
     const museumCard = screen.getByText('Museum').closest('li')!
     fireEvent.click(within(museumCard).getByRole('button', { name: 'Edit' }))
     const editTitle = within(museumCard).getAllByRole('textbox')[0]!
     fireEvent.change(editTitle, { target: { value: 'Museum tour' } })
     fireEvent.click(within(museumCard).getByRole('button', { name: 'Save' }))
-    expect(screen.getByText('Museum tour')).toBeTruthy()
+    expect(await screen.findByText('Museum tour')).toBeTruthy()
 
     const tourCard = screen.getByText('Museum tour').closest('li')!
     fireEvent.click(within(tourCard).getByRole('button', { name: 'Duplicate' }))
-    expect(screen.getByText('Museum tour (copy)')).toBeTruthy()
+    expect(await screen.findByText('Museum tour (copy)')).toBeTruthy()
 
     const copyCard = screen.getByText('Museum tour (copy)').closest('li')!
     fireEvent.click(within(copyCard).getByRole('button', { name: 'Down' }))
@@ -40,23 +40,23 @@ describe('TripPlatform deep coverage', () => {
     fireEvent.click(within(copyCard).getByRole('button', { name: 'Delete' }))
 
     fireEvent.click(screen.getByRole('tab', { name: 'Budget' }))
-    fireEvent.change(screen.getByLabelText('Expense title'), { target: { value: 'Lunch' } })
+    fireEvent.change(await screen.findByLabelText('Expense title'), { target: { value: 'Lunch' } })
     fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'food' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '25' } })
     fireEvent.change(screen.getByLabelText('Notes'), { target: { value: 'Cafe lunch' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save expense' }))
-    expect(screen.getByText('Lunch')).toBeTruthy()
+    expect(await screen.findByText('Lunch')).toBeTruthy()
 
     const lunchRow = screen.getByText('Lunch').closest('li')!
     fireEvent.click(within(lunchRow).getByRole('button', { name: 'Edit' }))
     fireEvent.click(screen.getByLabelText('Paid'))
     fireEvent.click(screen.getByRole('button', { name: 'Save expense' }))
-    fireEvent.click(within(screen.getByText('Lunch').closest('li')!).getByRole('button', { name: 'Delete' }))
+    fireEvent.click(within((await screen.findByText('Lunch')).closest('li')!).getByRole('button', { name: 'Delete' }))
 
     fireEvent.click(screen.getByRole('tab', { name: 'Packing' }))
-    fireEvent.change(screen.getByLabelText('Item name'), { target: { value: 'Charger' } })
+    fireEvent.change(await screen.findByLabelText('Item name'), { target: { value: 'Charger' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add packing item' }))
-    expect(screen.getByText(/Charger/)).toBeTruthy()
+    expect(await screen.findByText(/Charger/)).toBeTruthy()
     const chargerRow = screen.getByText(/Charger/).closest('li')!
     fireEvent.click(within(chargerRow).getByRole('checkbox'))
     fireEvent.click(within(chargerRow).getByRole('button', { name: 'Delete' }))
@@ -64,47 +64,47 @@ describe('TripPlatform deep coverage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add custom list' }))
 
     fireEvent.click(screen.getByRole('tab', { name: 'Travellers' }))
-    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sam' } })
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Sam' } })
     fireEvent.change(screen.getByLabelText('Nationality'), { target: { value: 'CA' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save traveller' }))
-    expect(screen.getByText('Sam')).toBeTruthy()
+    expect(await screen.findByText('Sam')).toBeTruthy()
     const samRow = screen.getByText('Sam').closest('article')!
     fireEvent.click(within(samRow).getByRole('button', { name: 'Edit' }))
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sam Lee' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save traveller' }))
-    expect(screen.getByText('Sam Lee')).toBeTruthy()
+    expect(await screen.findByText('Sam Lee')).toBeTruthy()
     fireEvent.click(within(screen.getByText('Sam Lee').closest('article')!).getByRole('button', { name: 'Delete' }))
 
     fireEvent.click(screen.getByRole('tab', { name: 'Bookings' }))
-    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Train' } })
+    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Train' } })
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'RailCo' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save booking' }))
-    expect(screen.getByText('Train')).toBeTruthy()
+    expect(await screen.findByText('Train')).toBeTruthy()
     const trainRow = screen.getByText('Train').closest('article')!
     fireEvent.click(within(trainRow).getByRole('button', { name: 'Edit' }))
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Express train' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save booking' }))
-    expect(screen.getByText('Express train')).toBeTruthy()
+    expect(await screen.findByText('Express train')).toBeTruthy()
     fireEvent.click(within(screen.getByText('Express train').closest('article')!).getByRole('button', { name: 'Delete' }))
 
     const stored = JSON.parse(localStorage.getItem(TRIP_KEY) ?? '{}') as { tripName?: string }
     expect(stored.tripName).toBeTruthy()
   })
 
-  it('shows validation errors on invalid trip setup', () => {
+  it('shows validation errors on invalid trip setup', async () => {
     render(<TripPlatform />)
     fireEvent.click(screen.getByRole('tab', { name: 'Trip setup' }))
-    fireEvent.change(screen.getByLabelText('Trip name'), { target: { value: '' } })
+    fireEvent.change(await screen.findByLabelText('Trip name'), { target: { value: '' } })
     fireEvent.change(screen.getByLabelText('Destination'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save trip' }))
-    expect(screen.getByText(/Please fix the highlighted fields/i)).toBeTruthy()
+    expect(await screen.findByText(/Please fix the highlighted fields/i)).toBeTruthy()
     expect(screen.getAllByRole('alert').length).toBeGreaterThan(0)
   })
 
-  it('creates a new blank trip from setup', () => {
+  it('creates a new blank trip from setup', async () => {
     render(<TripPlatform />)
     fireEvent.click(screen.getByRole('tab', { name: 'Trip setup' }))
-    fireEvent.click(screen.getByRole('button', { name: 'New blank trip' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'New blank trip' }))
     expect((screen.getByLabelText('Trip name') as HTMLInputElement).value).toBe('Untitled Trip')
   })
 })

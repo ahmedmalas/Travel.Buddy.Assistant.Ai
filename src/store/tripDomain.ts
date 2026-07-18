@@ -133,7 +133,7 @@ export type TripDocument = {
 };
 
 export type CollaborationRole = 'owner' | 'editor' | 'viewer';
-export type CollaborationMemberStatus = 'active' | 'invited' | 'revoked';
+export type CollaborationMemberStatus = 'pending' | 'accepted' | 'revoked' | 'expired' | 'active' | 'invited';
 
 export type CollaborationMember = {
   id: string;
@@ -570,9 +570,18 @@ const sanitizeCollaborationState = (value: unknown): CollaborationState => {
               : 'viewer',
             invitedAt: asString(item.invitedAt, new Date().toISOString()),
             status:
-              item.status === 'active' || item.status === 'invited' || item.status === 'revoked'
-                ? item.status
-                : 'invited',
+              item.status === 'pending' ||
+              item.status === 'accepted' ||
+              item.status === 'revoked' ||
+              item.status === 'expired' ||
+              item.status === 'active' ||
+              item.status === 'invited'
+                ? item.status === 'invited'
+                  ? 'pending'
+                  : item.status === 'active'
+                    ? 'accepted'
+                    : item.status
+                : 'pending',
           };
         })
       : fallback.members,
