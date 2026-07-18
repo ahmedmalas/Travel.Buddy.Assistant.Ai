@@ -54,11 +54,20 @@ Local-first backup/integrity platform:
 
 Details: [`docs/completed-slices.md`](completed-slices.md).
 
+### Completed in Slices 45–52 (Platform Foundation)
+
+- Store decomposition into domain modules
+- Cloud-ready repository contracts (local provider active)
+- Auth shell and sync engine foundations (no live providers)
+- Collaboration lifecycle upgrade
+- Notification centre + command centre dashboard
+- Lazy-loaded panels and release hardening
+
 ### Still placeholder / future
 
 Broader concierge modules (live destination discovery, supplier inventory, AI assistant with provider access) remain future work. Those surfaces must not pretend to have live unlimited provider access before integrations exist.
 
-AI features and backend collaboration sync have not been started.
+Live auth/sync providers, Supabase connection, and AI features have not been started.
 
 ## Non-goals for the baseline
 

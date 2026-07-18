@@ -54,7 +54,7 @@ export function AppShell() {
       </main>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm text-slate-500">
-        Travel Buddy Assistant AI — Slices 9–36 local-first baseline.
+        Travel Buddy Assistant AI — Slices 9–52 local-first platform foundation.
       </footer>
     </div>
   );

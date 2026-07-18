@@ -9,8 +9,10 @@ export function CollaborationPanel() {
     inviteCollaborator,
     updateCollaboratorRole,
     revokeCollaborator,
+    applyCollaboratorInvitationAction,
     canPerform,
     currentUserRole,
+    canManageMembers,
   } = useSharedTripStore();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -20,8 +22,8 @@ export function CollaborationPanel() {
 
   return (
     <Panel
-      title="Collaboration foundation"
-      description="Local-only owner, invites, roles, permissions, and audit history. No backend sync yet."
+      title="Collaboration"
+      description="Owner/editor/viewer permissions with pending, accepted, revoked, and expired invitation lifecycle. Local simulation only."
     >
       {feedback ? <StatusBanner kind="info" message={feedback} /> : null}
       <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
@@ -31,19 +33,37 @@ export function CollaborationPanel() {
         <p className="mt-1">
           Your role: <span className="text-white">{currentUserRole}</span> · can edit trip:{' '}
           {canPerform(currentUserRole, 'canEditTrip') ? 'yes' : 'no'} · can manage members:{' '}
-          {canPerform(currentUserRole, 'canManageMembers') ? 'yes' : 'no'}
+          {canManageMembers ? 'yes' : 'no'}
         </p>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <Field label="Invitee name" htmlFor="collab-name">
-          <input id="collab-name" className={inputClassName} value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            id="collab-name"
+            className={inputClassName}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={!canManageMembers}
+          />
         </Field>
         <Field label="Invitee email" htmlFor="collab-email">
-          <input id="collab-email" className={inputClassName} value={email} onChange={(e) => setEmail(e.target.value)} />
+          <input
+            id="collab-email"
+            className={inputClassName}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            disabled={!canManageMembers}
+          />
         </Field>
         <Field label="Role" htmlFor="collab-role">
-          <select id="collab-role" className={inputClassName} value={role} onChange={(e) => setRole(e.target.value as CollaborationRole)}>
+          <select
+            id="collab-role"
+            className={inputClassName}
+            value={role}
+            onChange={(e) => setRole(e.target.value as CollaborationRole)}
+            disabled={!canManageMembers}
+          >
             {COLLABORATION_ROLES.filter((entry) => entry !== 'owner').map((entry) => (
               <option key={entry} value={entry}>
                 {entry}
@@ -55,6 +75,7 @@ export function CollaborationPanel() {
       <div className="mt-3">
         <PrimaryButton
           type="button"
+          disabled={!canManageMembers}
           onClick={() => {
             const result = inviteCollaborator({ name, email, role });
             setFeedback(result.message);
@@ -87,6 +108,7 @@ export function CollaborationPanel() {
                     <select
                       className={inputClassName}
                       value={member.role}
+                      disabled={!canManageMembers}
                       onChange={(e) => updateCollaboratorRole(member.id, e.target.value as CollaborationRole)}
                       aria-label={`Role for ${member.name}`}
                     >
@@ -96,7 +118,34 @@ export function CollaborationPanel() {
                         </option>
                       ))}
                     </select>
-                    <SecondaryButton type="button" onClick={() => revokeCollaborator(member.id)}>
+                    <SecondaryButton
+                      type="button"
+                      disabled={!canManageMembers}
+                      onClick={() => {
+                        const result = applyCollaboratorInvitationAction(member.id, 'accept');
+                        setFeedback(result.message);
+                      }}
+                    >
+                      Accept
+                    </SecondaryButton>
+                    <SecondaryButton
+                      type="button"
+                      disabled={!canManageMembers}
+                      onClick={() => {
+                        const result = applyCollaboratorInvitationAction(member.id, 'expire');
+                        setFeedback(result.message);
+                      }}
+                    >
+                      Expire
+                    </SecondaryButton>
+                    <SecondaryButton
+                      type="button"
+                      disabled={!canManageMembers}
+                      onClick={() => {
+                        revokeCollaborator(member.id);
+                        setFeedback('Invitation revoked.');
+                      }}
+                    >
                       Revoke
                     </SecondaryButton>
                   </div>
@@ -108,7 +157,7 @@ export function CollaborationPanel() {
       </div>
 
       <div className="mt-6">
-        <h4 className="font-medium text-white">Audit history</h4>
+        <h4 className="font-medium text-white">Activity history</h4>
         <ul className="mt-3 space-y-2">
           {collaboration.auditHistory.slice(0, 12).map((entry) => (
             <li key={entry.id} className="rounded-xl border border-white/10 px-3 py-2 text-sm text-slate-300">

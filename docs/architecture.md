@@ -2,19 +2,23 @@
 
 Travel Buddy Assistant AI is a React, Vite, TypeScript, and Tailwind frontend with a local-first trip data platform.
 
-## Verified baseline architecture (Slices 9–44)
+## Verified baseline architecture (Slices 9–52)
 
 - `src/main.ts` mounts the React application.
 - `src/App.tsx` renders the top-level app shell.
 - `src/components/AppShell.tsx` hosts marketing placeholders and mounts `TripPlatform`.
-- `src/components/trip-platform/` contains Slices 29–44 user-facing modules and tab navigation.
+- `src/components/trip-platform/` contains Slices 29–52 user-facing modules; heavy panels are lazy-loaded.
 - `src/components/TripWorkspace.tsx` remains the Slices 9–28 backup/snapshot/integrity UI (Backup & integrity tab).
 - `src/store/TripStoreContext.tsx` provides one shared `useTripStore` instance to all platform panels.
+- `src/store/storeConstants.ts` centralises storage keys and backup/version constants.
+- `src/store/modules/` indexes extracted domain modules for Slice 45 decomposition.
 - `src/store/tripDomain.ts` owns trip domain types, validation, and trip-level migration.
 - `src/store/vaultDomain.ts` owns multi-trip vault, templates, documents, and collaboration types/migrations.
+- `src/store/repositories/` defines cloud-ready repository interfaces with a localStorage provider (Supabase planned, not connected).
+- `src/store/auth/`, `sync/`, `notifications/`, `commandCentre/`, `collaboration/` hold foundation modules for Slices 47–51.
 - `src/store/platformCalculations.ts` owns deterministic budget/packing/itinerary/overview math.
 - `src/store/vaultCalculations.ts` owns vault filter/sort, global search, calendar helpers, expiry reminders, permissions.
-- `src/store/useTripStore.ts` owns persistence, undo/redo, backup/snapshots, integrity, platform CRUD, and vault APIs.
+- `src/store/useTripStore.ts` orchestrates persistence, undo/redo, backup/snapshots, integrity, vault, and foundation APIs.
 - `src/store/integrityCalculations.ts` holds deterministic integrity scoring/trend/accuracy helpers.
 - `docs` records product scope, architecture, and completed-slice verification.
 

@@ -12,7 +12,17 @@ The long-term product vision is not a simple itinerary builder. The goal is to b
 - **Slices 29–36** Trip Platform (PR #9)
 - **Slices 37–44** Vault Platform (PR #10, merge `f412d6e`)
 
-Verified Vault Platform capabilities:
+Active development adds **Slices 45–52** platform foundation:
+
+- Store domain-module decomposition with preserved public APIs
+- Repository interfaces + localStorage provider (Supabase adapter planned, not connected)
+- Auth shell (demo/local only)
+- Sync engine foundation (queue/revisions/conflicts)
+- Collaboration lifecycle + permission enforcement
+- Notification centre and command centre dashboard
+- Lazy-loaded panels and hardening
+
+Verified Vault Platform capabilities already on `main`:
 
 - Multi-trip vault with favourites, archive, duplicate, search/filter/sort
 - Trip templates (defaults + save/create/manage)

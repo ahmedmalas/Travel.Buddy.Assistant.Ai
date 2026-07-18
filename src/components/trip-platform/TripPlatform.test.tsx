@@ -4,34 +4,34 @@ import { describe, expect, it } from 'vitest';
 import { TripPlatform } from './TripPlatform';
 
 describe('TripPlatform UI', () => {
-  it('renders vault and switches to trip setup', async () => {
+  it('renders command centre and switches to trip setup', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
     expect(screen.getByRole('heading', { name: /Trip platform/i })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: /^Trip vault$/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /^Command centre$/i })).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: /Trip setup/i }));
-    expect(screen.getByRole('heading', { name: /Create or edit trip/i })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: /Create or edit trip/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/Trip name/i)).toBeInTheDocument();
   });
 
-  it('opens calendar, documents, and search tabs', async () => {
+  it('opens notifications, auth, and sync tabs', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
-    await user.click(screen.getByRole('tab', { name: /^Calendar$/i }));
-    expect(screen.getByRole('heading', { name: /Calendar planner/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /^Documents$/i }));
-    expect(screen.getByRole('heading', { name: /Travel documents/i })).toBeInTheDocument();
-    await user.click(screen.getByRole('tab', { name: /^Search$/i }));
-    expect(screen.getByRole('heading', { name: /Global search/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Notifications$/i }));
+    expect(await screen.findByRole('heading', { name: /Notification centre/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Auth$/i }));
+    expect(await screen.findByRole('heading', { name: /Authentication shell/i })).toBeInTheDocument();
+    await user.click(screen.getByRole('tab', { name: /^Sync$/i }));
+    expect(await screen.findByRole('heading', { name: /Sync engine foundation/i })).toBeInTheDocument();
   });
 
-  it('supports arrow-key tab navigation from vault', async () => {
+  it('supports arrow-key tab navigation from command centre', async () => {
     const user = userEvent.setup();
     render(<TripPlatform />);
-    const vault = screen.getByRole('tab', { name: /^Vault$/i });
-    vault.focus();
+    const command = await screen.findByRole('tab', { name: /Command centre/i });
+    command.focus();
     await user.keyboard('{ArrowRight}');
-    expect(screen.getByRole('tab', { name: /Trip setup/i })).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByRole('heading', { name: /Create or edit trip/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /^Vault$/i })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: /^Trip vault$/i })).toBeInTheDocument();
   });
 });

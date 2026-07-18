@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import packageMetadata from '../../package.json';
 import {
   average,
   calculateIntegrityHealthScoreFromCounts,
@@ -45,8 +44,6 @@ import {
   canPerform,
 } from './vaultCalculations';
 import {
-  TEMPLATE_STORAGE_KEY,
-  VAULT_STORAGE_KEY,
   cloneVaultTrip,
   createVaultTrip,
   getActiveVaultTrip,
@@ -66,6 +63,70 @@ import {
   type VaultSortKey,
   type VaultTrip,
 } from './vaultDomain';
+import {
+  APPLICATION_VERSION,
+  BACKUP_VERSION,
+  DEFAULT_LOCAL_STORAGE_CAPACITY_BYTES,
+  HISTORY_LIMIT,
+  INTEGRITY_HISTORY_BASELINE_STORAGE_KEY,
+  INTEGRITY_HISTORY_LIMIT,
+  INTEGRITY_HISTORY_STORAGE_KEY,
+  INTEGRITY_HISTORY_VERSION,
+  INTEGRITY_REPAIR_BACKUP_STORAGE_KEY,
+  LOCAL_SNAPSHOT_STORAGE_KEY,
+  LOCAL_STORAGE_KEY,
+  MIN_SUPPORTED_BACKUP_VERSION,
+  SNAPSHOT_HISTORY_VERSION,
+  SNAPSHOT_LABEL_LIMIT,
+  SNAPSHOT_NOTES_LIMIT,
+  STORAGE_KEYS,
+  TEMPLATE_STORAGE_KEY,
+  UNPINNED_SNAPSHOT_LIMIT,
+  VAULT_STORAGE_KEY,
+} from './storeConstants';
+import {
+  enterDemoMode,
+  loadAuthState,
+  persistAuthState,
+  requestPasswordReset,
+  resetPasswordLocal,
+  setAuthScreen,
+  signInLocal,
+  signOutLocal,
+  signUpLocal,
+  type AuthScreen,
+  type AuthShellState,
+} from './auth/authShell';
+import {
+  enqueueChange,
+  loadSyncState,
+  persistSyncState,
+  retryFailedChanges,
+  runManualSync,
+  setNetworkState,
+  syncQueueSummary,
+  type SyncEngineState,
+  type SyncEntityType,
+} from './sync/syncEngine';
+import {
+  buildNotificationsFromTrips,
+  dismissNotification as applyDismissNotification,
+  loadNotificationState,
+  markAllNotificationsRead as applyMarkAllNotificationsRead,
+  markNotificationRead as applyMarkNotificationRead,
+  persistNotificationState,
+  unreadNotificationCount,
+  visibleNotifications,
+  type NotificationCentreState,
+} from './notifications/notificationCentre';
+import { buildCommandCentre } from './commandCentre/commandCentre';
+import { SUPABASE_ADAPTER_PLAN, createLocalDataRepositories } from './repositories';
+import {
+  applyInvitationAction,
+  assertCanEdit,
+  assertCanManageMembers,
+  type InvitationAction,
+} from './collaboration/collaborationLifecycle';
 
 export type {
   Booking,
@@ -456,23 +517,6 @@ type IntegrityHistoryBackup = {
   selectedBaselineRunId: string | null;
   runs: IntegrityAuditRun[];
 };
-
-const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
-const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
-const HISTORY_LIMIT = 50;
-const UNPINNED_SNAPSHOT_LIMIT = 10;
-const BACKUP_VERSION = 4;
-const MIN_SUPPORTED_BACKUP_VERSION = 2;
-const SNAPSHOT_HISTORY_VERSION = 1;
-const APPLICATION_VERSION = typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
-const SNAPSHOT_LABEL_LIMIT = 60;
-const SNAPSHOT_NOTES_LIMIT = 500;
-const INTEGRITY_REPAIR_BACKUP_STORAGE_KEY = 'travel-buddy:integrity-repair-backups:v1';
-const INTEGRITY_HISTORY_STORAGE_KEY = 'travel-buddy:integrity-history:v1';
-const INTEGRITY_HISTORY_BASELINE_STORAGE_KEY = 'travel-buddy:integrity-history-baseline:v1';
-const INTEGRITY_HISTORY_VERSION = 1;
-const INTEGRITY_HISTORY_LIMIT = 20;
-const DEFAULT_LOCAL_STORAGE_CAPACITY_BYTES = 5 * 1024 * 1024;
 
 const bytesInString = (value: string): number => {
   if (typeof TextEncoder !== 'undefined') {
@@ -1203,6 +1247,10 @@ export function useTripStore() {
   const [vaultFilter, setVaultFilter] = useState<VaultFilterKey>('all');
   const [vaultSort, setVaultSort] = useState<VaultSortKey>('lastOpened');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
+  const [authState, setAuthState] = useState<AuthShellState>(() => loadAuthState());
+  const [syncState, setSyncState] = useState<SyncEngineState>(() => loadSyncState());
+  const [notificationState, setNotificationState] = useState<NotificationCentreState>(() => loadNotificationState());
+  const repositories = useMemo(() => createLocalDataRepositories(), []);
   const [snapshots, setSnapshots] = useState<BackupSnapshot[]>(() => initialSnapshotStorage.snapshots);
   const [activeTripParseStatus, setActiveTripParseStatus] = useState<StorageParseStatus>(initialActiveTripStorage.parseStatus);
   const [snapshotHistoryParseStatus, setSnapshotHistoryParseStatus] = useState<StorageParseStatus>(
@@ -1349,6 +1397,29 @@ export function useTripStore() {
       // Ignore template persistence quota failures; templates remain in memory.
     }
   }, [templates]);
+  useEffect(() => {
+    persistAuthState(authState);
+  }, [authState]);
+  useEffect(() => {
+    persistSyncState(syncState);
+  }, [syncState]);
+  useEffect(() => {
+    setNotificationState((current) => {
+      const next = buildNotificationsFromTrips(vault.trips, current);
+      persistNotificationState(next);
+      return next;
+    });
+  }, [vault.trips]);
+  useEffect(() => {
+    const onOnline = () => setSyncState((current) => setNetworkState(current, 'online'));
+    const onOffline = () => setSyncState((current) => setNetworkState(current, 'offline'));
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
   useEffect(() => {
     persistSnapshotHistory(snapshots);
   }, [snapshots]);
@@ -1992,6 +2063,26 @@ export function useTripStore() {
     );
   };
 
+  const currentUserRole: CollaborationRole = 'owner';
+
+  const queueEntityChange = (
+    entityType: SyncEntityType,
+    entityId: string,
+    payload: unknown,
+    tripId: string | null = null,
+    revision = Date.now(),
+  ) => {
+    setSyncState((current) =>
+      enqueueChange(current, {
+        entityType,
+        entityId,
+        tripId,
+        revision,
+        payload,
+      }),
+    );
+  };
+
   const inviteCollaborator = (input: { name: string; email: string; role: CollaborationRole }) => {
     if (input.role === 'owner') {
       return { ok: false as const, message: 'Owner role cannot be assigned via invite.' };
@@ -2002,8 +2093,12 @@ export function useTripStore() {
       email: input.email.trim(),
       role: input.role,
       invitedAt: new Date().toISOString(),
-      status: 'invited',
+      status: 'pending',
     };
+    const permission = assertCanManageMembers(currentUserRole);
+    if (!permission.ok) {
+      return { ok: false as const, message: permission.message };
+    }
     updateTrip(
       (trip) => {
         const vaultTrip = toVaultTrip(trip);
@@ -2016,7 +2111,7 @@ export function useTripStore() {
               at: new Date().toISOString(),
               actorName: vaultTrip.collaboration.ownerName,
               action: 'invite',
-              details: `Invited ${member.name} as ${member.role} (local-only, no sync).`,
+              details: `Invited ${member.name} as ${member.role} (pending, local-only).`,
             },
             ...vaultTrip.collaboration.auditHistory,
           ].slice(0, 100),
@@ -2025,7 +2120,29 @@ export function useTripStore() {
       },
       { createSnapshot: true },
     );
+    queueEntityChange('collaboration', member.id, member, (history.present as VaultTrip).id);
     return { ok: true as const, message: `Invited ${member.name}.` };
+  };
+
+  const applyCollaboratorInvitationAction = (memberId: string, action: InvitationAction) => {
+    const permission = assertCanManageMembers(currentUserRole);
+    if (!permission.ok && action !== 'accept') {
+      return { ok: false as const, message: permission.message };
+    }
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const collaboration = applyInvitationAction(
+          vaultTrip.collaboration,
+          memberId,
+          action,
+          vaultTrip.collaboration.ownerName,
+        );
+        return appendActivity({ ...vaultTrip, collaboration }, `Collaboration invitation ${action}.`);
+      },
+      { createSnapshot: true },
+    );
+    return { ok: true as const, message: `Invitation ${action} applied.` };
   };
 
   const updateCollaboratorRole = (memberId: string, role: CollaborationRole) => {
@@ -4614,7 +4731,15 @@ export function useTripStore() {
   );
   const visibleTemplates = useMemo(() => filterTemplates(templates, vaultQuery), [templates, vaultQuery]);
   const activeVaultTrip = useMemo(() => toVaultTrip(history.present, vault.activeTripId), [history.present, vault.activeTripId]);
-  const currentUserRole: CollaborationRole = 'owner';
+  const notifications = useMemo(() => visibleNotifications(notificationState), [notificationState]);
+  const unreadNotifications = useMemo(() => unreadNotificationCount(notificationState), [notificationState]);
+  const syncSummary = useMemo(() => syncQueueSummary(syncState), [syncState]);
+  const commandCentre = useMemo(
+    () => buildCommandCentre(vault.trips, vault.activeTripId, notifications),
+    [vault.trips, vault.activeTripId, notifications],
+  );
+  const canEditTrip = assertCanEdit(currentUserRole).ok;
+  const canManageMembers = assertCanManageMembers(currentUserRole).ok;
 
   return {
     trip: history.present,
@@ -4674,8 +4799,11 @@ export function useTripStore() {
     inviteCollaborator,
     updateCollaboratorRole,
     revokeCollaborator,
+    applyCollaboratorInvitationAction,
     canPerform,
     currentUserRole,
+    canEditTrip,
+    canManageMembers,
     globalSearchQuery,
     setGlobalSearchQuery,
     globalSearchResults,
@@ -4684,6 +4812,46 @@ export function useTripStore() {
     toVaultBackupJson,
     rescheduleStopDate,
     activeVaultTrip,
+    authState,
+    authSignIn: (email: string, password: string) => setAuthState((current) => signInLocal(current, email, password)),
+    authSignUp: (email: string, password: string, displayName: string) =>
+      setAuthState((current) => signUpLocal(current, email, password, displayName)),
+    authSignOut: () => setAuthState((current) => signOutLocal(current)),
+    authForgotPassword: (email: string) => setAuthState((current) => requestPasswordReset(current, email)),
+    authResetPassword: (token: string, password: string) =>
+      setAuthState((current) => resetPasswordLocal(current, token, password)),
+    authEnterDemoMode: () => setAuthState(enterDemoMode()),
+    authSetScreen: (screen: AuthScreen) => setAuthState((current) => setAuthScreen(current, screen)),
+    syncState,
+    syncSummary,
+    queueEntityChange,
+    runSync: () => setSyncState((current) => runManualSync(current)),
+    retrySyncFailures: () => setSyncState((current) => retryFailedChanges(current)),
+    setSyncNetwork: (network: 'online' | 'offline') => setSyncState((current) => setNetworkState(current, network)),
+    notifications,
+    unreadNotifications,
+    markNotificationRead: (id: string) =>
+      setNotificationState((current) => {
+        const next = applyMarkNotificationRead(current, id);
+        persistNotificationState(next);
+        return next;
+      }),
+    dismissNotification: (id: string) =>
+      setNotificationState((current) => {
+        const next = applyDismissNotification(current, id);
+        persistNotificationState(next);
+        return next;
+      }),
+    markAllNotificationsRead: () =>
+      setNotificationState((current) => {
+        const next = applyMarkAllNotificationsRead(current);
+        persistNotificationState(next);
+        return next;
+      }),
+    commandCentre,
+    repositories,
+    cloudAdapterPlan: SUPABASE_ADAPTER_PLAN,
+    storageKeyCatalog: STORAGE_KEYS,
     undo,
     redo,
     moveStop,
@@ -4761,12 +4929,7 @@ export function useTripStore() {
     integrityReportFileName,
     toIntegrityReportJson,
     storageHealth,
-    storageKeys: {
-      activeTrip: LOCAL_STORAGE_KEY,
-      snapshotHistory: LOCAL_SNAPSHOT_STORAGE_KEY,
-      tripVault: VAULT_STORAGE_KEY,
-      tripTemplates: TEMPLATE_STORAGE_KEY,
-    },
+    storageKeys: STORAGE_KEYS,
     snapshotLabelLimit: SNAPSHOT_LABEL_LIMIT,
     snapshotNotesLimit: SNAPSHOT_NOTES_LIMIT,
     unpinnedSnapshotLimit: UNPINNED_SNAPSHOT_LIMIT,
