@@ -29,7 +29,7 @@ PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/7
 
 ## Slices 29–36 (Trip Platform)
 
-Implemented on branch `cursor/slices-29-36-trip-platform-03b5` as the next user-facing milestone. Extends the same `useTripStore` local-first model (backup version **3**, with migration from version **2**).
+Merged via PR #9 onto `main`. Extends the local-first model (backup version **3** at merge; later raised to **4** with vault).
 
 | Slice | Capability |
 |------:|------------|
@@ -42,10 +42,26 @@ Implemented on branch `cursor/slices-29-36-trip-platform-03b5` as the next user-
 | 35 | Traveller profiles (passport metadata fields only, no scans) |
 | 36 | Product polish, shared store provider, migrations, docs, QA |
 
+## Slices 37–44 (Vault Platform)
+
+Implemented on branch `cursor/slices-37-44-vault-platform-03b5`. Extends the same `useTripStore` with multi-trip vault storage (backup version **4**, migrates v2/v3).
+
+| Slice | Capability |
+|------:|------------|
+| 37 | Multi-trip vault (create/archive/duplicate/delete, sort/search/filter, favourites, last opened) |
+| 38 | Trip templates (save/create/default/manage) |
+| 39 | Calendar view (month/week/day, drag-and-drop scheduling, conflicts, itinerary sync) |
+| 40 | Documents metadata (passport/visa/insurance/tickets, attachment placeholders, expiry reminders) |
+| 41 | Global search across trips and nested entities |
+| 42 | Collaboration foundation (owner, invites, roles, permissions, audit; local-only) |
+| 43 | Import & migration (vault/trip backups, templates, validation, recovery) |
+| 44 | Production hardening (a11y/responsive polish, regression tests, docs) |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
 - Domain model + migration in `src/store/tripDomain.ts`
+- Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
 - Deterministic calculations in `src/store/platformCalculations.ts`
 - UI modules under `src/components/trip-platform/`
 - Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
@@ -63,7 +79,8 @@ npm run validate
 
 ## Explicitly out of scope
 
-- Slice 37+ / AI features
+- AI features / live provider inventory
 - External booking/flight/hotel APIs
 - Passport scans or highly sensitive document file storage
+- Backend sync for collaboration
 - Merging divergent older PRs (#1, #3, #6)

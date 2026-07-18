@@ -116,7 +116,55 @@ export type ActivityLogEntry = {
   message: string;
 };
 
+export type TripDocumentType = 'passport' | 'visa' | 'insurance' | 'ticket' | 'reservation' | 'other';
+
+export type TripDocument = {
+  id: string;
+  type: TripDocumentType;
+  title: string;
+  holderName: string;
+  documentNumberLast4: string;
+  issuingCountry: string;
+  issueDate: string;
+  expiryDate: string;
+  notes: string;
+  attachmentName: string;
+  attachmentMimeType: string;
+};
+
+export type CollaborationRole = 'owner' | 'editor' | 'viewer';
+export type CollaborationMemberStatus = 'active' | 'invited' | 'revoked';
+
+export type CollaborationMember = {
+  id: string;
+  name: string;
+  email: string;
+  role: CollaborationRole;
+  invitedAt: string;
+  status: CollaborationMemberStatus;
+};
+
+export type CollaborationAuditEntry = {
+  id: string;
+  at: string;
+  actorName: string;
+  action: string;
+  details: string;
+};
+
+export type CollaborationState = {
+  ownerName: string;
+  ownerEmail: string;
+  members: CollaborationMember[];
+  auditHistory: CollaborationAuditEntry[];
+};
+
 export type TripData = {
+  id?: string;
+  favourite?: boolean;
+  lastOpenedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
   tripName: string;
   destination: string;
   departureDate: string;
@@ -133,6 +181,8 @@ export type TripData = {
   packingLists: PackingList[];
   travellers: Traveller[];
   activityLog: ActivityLogEntry[];
+  documents?: TripDocument[];
+  collaboration?: CollaborationState;
 };
 
 export type TripSetupInput = {
@@ -466,6 +516,83 @@ export const isLegacyTripShape = (value: unknown): boolean => {
   });
 };
 
+const DOCUMENT_TYPES: TripDocumentType[] = ['passport', 'visa', 'insurance', 'ticket', 'reservation', 'other'];
+const COLLABORATION_ROLES: CollaborationRole[] = ['owner', 'editor', 'viewer'];
+
+const sanitizeDocument = (doc: Partial<TripDocument>): TripDocument => ({
+  id: asString(doc.id, crypto.randomUUID()),
+  type: DOCUMENT_TYPES.includes(doc.type as TripDocumentType) ? (doc.type as TripDocumentType) : 'other',
+  title: asString(doc.title).trim() || 'Untitled document',
+  holderName: asString(doc.holderName).trim(),
+  documentNumberLast4: asString(doc.documentNumberLast4).replace(/\D/g, '').slice(-4),
+  issuingCountry: asString(doc.issuingCountry).trim(),
+  issueDate: isIsoDate(asString(doc.issueDate)) ? asString(doc.issueDate) : '',
+  expiryDate: isIsoDate(asString(doc.expiryDate)) ? asString(doc.expiryDate) : '',
+  notes: asString(doc.notes).trim(),
+  attachmentName: asString(doc.attachmentName).trim(),
+  attachmentMimeType: asString(doc.attachmentMimeType).trim(),
+});
+
+const sanitizeCollaborationState = (value: unknown): CollaborationState => {
+  const fallback: CollaborationState = {
+    ownerName: 'Local Owner',
+    ownerEmail: 'owner@local',
+    members: [
+      {
+        id: 'member-owner',
+        name: 'Local Owner',
+        email: 'owner@local',
+        role: 'owner',
+        invitedAt: new Date().toISOString(),
+        status: 'active',
+      },
+    ],
+    auditHistory: [],
+  };
+  if (!value || typeof value !== 'object') {
+    return fallback;
+  }
+  const raw = value as Partial<CollaborationState>;
+  const ownerName = asString(raw.ownerName, fallback.ownerName) || fallback.ownerName;
+  const ownerEmail = asString(raw.ownerEmail, fallback.ownerEmail) || fallback.ownerEmail;
+  return {
+    ownerName,
+    ownerEmail,
+    members: Array.isArray(raw.members)
+      ? raw.members.map((member) => {
+          const item = member as Partial<CollaborationMember>;
+          return {
+            id: asString(item.id, crypto.randomUUID()),
+            name: asString(item.name).trim() || 'Member',
+            email: asString(item.email).trim(),
+            role: COLLABORATION_ROLES.includes(item.role as CollaborationRole)
+              ? (item.role as CollaborationRole)
+              : 'viewer',
+            invitedAt: asString(item.invitedAt, new Date().toISOString()),
+            status:
+              item.status === 'active' || item.status === 'invited' || item.status === 'revoked'
+                ? item.status
+                : 'invited',
+          };
+        })
+      : fallback.members,
+    auditHistory: Array.isArray(raw.auditHistory)
+      ? raw.auditHistory
+          .map((entry) => {
+            const item = entry as Partial<CollaborationAuditEntry>;
+            return {
+              id: asString(item.id, crypto.randomUUID()),
+              at: asString(item.at, new Date().toISOString()),
+              actorName: asString(item.actorName, ownerName),
+              action: asString(item.action, 'event'),
+              details: asString(item.details),
+            };
+          })
+          .slice(0, 100)
+      : [],
+  };
+};
+
 export const migrateTrip = (value: unknown): TripData => {
   if (!isLegacyTripShape(value)) {
     return createEmptyTrip();
@@ -474,6 +601,11 @@ export const migrateTrip = (value: unknown): TripData => {
   const base = createEmptyTrip();
   return {
     ...base,
+    id: typeof raw.id === 'string' && raw.id ? raw.id : undefined,
+    favourite: typeof raw.favourite === 'boolean' ? raw.favourite : undefined,
+    lastOpenedAt: typeof raw.lastOpenedAt === 'string' ? raw.lastOpenedAt : undefined,
+    createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
+    updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
     tripName: asString(raw.tripName, base.tripName),
     destination: asString(raw.destination, base.destination),
     departureDate: isIsoDate(asString(raw.departureDate)) ? asString(raw.departureDate) : base.departureDate,
@@ -497,6 +629,10 @@ export const migrateTrip = (value: unknown): TripData => {
     activityLog: Array.isArray(raw.activityLog)
       ? raw.activityLog.map((entry) => sanitizeActivity(entry as Partial<ActivityLogEntry>)).slice(0, 50)
       : [],
+    documents: Array.isArray(raw.documents)
+      ? raw.documents.map((doc) => sanitizeDocument(doc as Partial<TripDocument>))
+      : [],
+    collaboration: sanitizeCollaborationState(raw.collaboration),
   };
 };
 
@@ -534,6 +670,14 @@ export const cloneTrip = (trip: TripData): TripData => {
     })),
     travellers: sanitized.travellers.map((traveller) => ({ ...traveller })),
     activityLog: sanitized.activityLog.map((entry) => ({ ...entry })),
+    documents: (sanitized.documents ?? []).map((doc) => ({ ...doc })),
+    collaboration: sanitized.collaboration
+      ? {
+          ...sanitized.collaboration,
+          members: sanitized.collaboration.members.map((member) => ({ ...member })),
+          auditHistory: sanitized.collaboration.auditHistory.map((entry) => ({ ...entry })),
+        }
+      : undefined,
   };
 };
 

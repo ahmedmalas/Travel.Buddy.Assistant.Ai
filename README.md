@@ -6,15 +6,21 @@ The long-term product vision is not a simple itinerary builder. The goal is to b
 
 ## Current verified baseline
 
-`main` includes the completed **Slices 9–28** local-first backup/integrity platform (PR #7).
+`main` includes:
 
-Active development adds **Slices 29–36** Trip Platform capabilities on top of the same store:
+- **Slices 9–28** local-first backup/integrity platform (PR #7)
+- **Slices 29–36** Trip Platform (PR #9)
 
-- React + Vite + TypeScript + Tailwind CSS
-- Trip setup, overview dashboard, day-by-day itinerary
-- Bookings, budget tracker, packing lists, traveller profiles
-- Shared `useTripStore` persistence + backup version 3 migration
-- Backup/snapshot/integrity tooling preserved under Backup & integrity
+Active development adds **Slices 37–44** Vault Platform capabilities:
+
+- Multi-trip vault with favourites, archive, duplicate, search/filter/sort
+- Trip templates (defaults + save/create/manage)
+- Calendar planner (month/week/day, drag-and-drop, conflicts)
+- Document metadata + expiry reminders (no file uploads)
+- Global search across vault entities
+- Collaboration foundation (local roles/permissions/audit; no backend sync)
+- Vault/template import & migration (backup version **4**)
+- Shared `useTripStore` persistence with compatibility for snapshots/diagnostics/integrity
 - Vitest + Testing Library automation with `npm run validate`
 
 See [`docs/completed-slices.md`](docs/completed-slices.md) for the full slice inventory and verification notes.
@@ -37,17 +43,18 @@ npm run validate
 
 Current verified surfaces:
 
-- Trip itinerary planning (local)
-- Backup / import / export
+- Multi-trip vault and templates
+- Trip itinerary + calendar planning (local)
+- Bookings, budget, packing, travellers, documents (metadata)
+- Backup / import / export / vault migration
 - Snapshot history and restore
 - Storage diagnostics and integrity audit/repair
 
 Placeholder product areas still ahead of live integrations:
 
-- Destination discovery
-- Budget and cost estimation
-- Booking organisation across providers
+- Destination discovery with live inventory
 - AI travel assistant with live supplier access
+- Backend collaboration sync
 
 ## Integration direction
 
