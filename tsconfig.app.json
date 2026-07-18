@@ -13,8 +13,10 @@
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noEmit": true,
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "composite": true,
+    "rootDir": "./src",
+    "outDir": "./.tsbuild/app"
   },
   "include": ["src"]
 }

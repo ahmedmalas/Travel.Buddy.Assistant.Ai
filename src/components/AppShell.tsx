@@ -1,4 +1,5 @@
 import { SectionCard } from './SectionCard';
+import { TripWorkspace } from './TripWorkspace';
 import { travelSections } from '../data/sections';
 
 export function AppShell() {
@@ -46,6 +47,8 @@ export function AppShell() {
             <SectionCard key={section.title} section={section} />
           ))}
         </section>
+
+        <TripWorkspace />
       </main>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm text-slate-500">
