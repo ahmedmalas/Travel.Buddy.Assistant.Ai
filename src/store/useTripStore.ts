@@ -3,6 +3,7 @@ import packageMetadata from '../../package.json';
 import {
   average,
   calculateIntegrityHealthScoreFromCounts,
+  classifySimulationAccuracy,
   classifyTrendDirection,
   getRunSeverityWeight,
   getTrendWindowRuns,
@@ -1275,14 +1276,14 @@ export function useTripStore() {
     window.localStorage.setItem(INTEGRITY_HISTORY_STORAGE_KEY, JSON.stringify(integrityAuditRuns));
   }, [integrityAuditRuns, integrityHistoryParseStatus]);
   useEffect(() => {
+    // Persist selected baseline only. Do not auto-delete storage when selection is null so
+    // orphaned/corrupt baseline references remain available for diagnostics and validation.
     if (selectedIntegrityBaselineRunId) {
       window.localStorage.setItem(
         INTEGRITY_HISTORY_BASELINE_STORAGE_KEY,
         JSON.stringify(selectedIntegrityBaselineRunId),
       );
-      return;
     }
-    window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
   }, [selectedIntegrityBaselineRunId]);
   useEffect(() => {
     if (!selectedIntegrityBaselineRunId) {
@@ -2733,10 +2734,13 @@ export function useTripStore() {
         malformedRunCount += 1;
       }
     }
+    let rawBaselineId: string | null = null;
     if (rawBaseline) {
       try {
         const parsedBaseline: unknown = JSON.parse(rawBaseline);
-        if (typeof parsedBaseline !== 'string') {
+        if (typeof parsedBaseline === 'string') {
+          rawBaselineId = parsedBaseline;
+        } else if (parsedBaseline !== null) {
           missingMetadata = true;
         }
       } catch {
@@ -2744,7 +2748,9 @@ export function useTripStore() {
       }
     }
     const invalidBaselineReference =
-      selectedIntegrityBaselineRunId !== null && !validRuns.some((run) => run.id === selectedIntegrityBaselineRunId);
+      (selectedIntegrityBaselineRunId !== null &&
+        !validRuns.some((run) => run.id === selectedIntegrityBaselineRunId)) ||
+      (rawBaselineId !== null && !validRuns.some((run) => run.id === rawBaselineId));
     if (integrityAuditRuns.some((run) => run.snapshotHistoryVersion !== SNAPSHOT_HISTORY_VERSION)) {
       unsupportedVersion = true;
     }
@@ -2940,19 +2946,30 @@ export function useTripStore() {
     if (!Array.isArray(parsedRecord.runs)) {
       throw new Error('Integrity history runs array is missing.');
     }
-    const runs = trimIntegrityHistoryRuns(
-      sortIntegrityHistoryRuns(
-        parsedRecord.runs.filter((run): run is IntegrityAuditRun => {
-          if (!isIntegrityAuditRun(run)) {
-            return false;
-          }
-          return isValidTimestamp(run.generatedAt) && run.issueFingerprints.every(isValidIntegrityFingerprint);
-        }),
-      ),
-    );
-    if (runs.length !== parsedRecord.runs.length) {
-      throw new Error('Integrity history backup contains malformed run metadata or fingerprints.');
+    const typedRuns: IntegrityAuditRun[] = [];
+    for (const candidate of parsedRecord.runs) {
+      if (!isIntegrityAuditRun(candidate)) {
+        throw new Error('Integrity history backup contains malformed run metadata or fingerprints.');
+      }
+      if (!isValidTimestamp(candidate.generatedAt)) {
+        throw new Error(`Invalid run timestamp: ${candidate.id}`);
+      }
+      if (
+        candidate.totalIssueCount < 0 ||
+        candidate.warningCount < 0 ||
+        candidate.repairableErrorCount < 0 ||
+        candidate.blockingErrorCount < 0 ||
+        candidate.repairableIssueCount < 0 ||
+        candidate.unresolvedIssueCount < 0
+      ) {
+        throw new Error(`Negative issue counts: ${candidate.id}`);
+      }
+      if (!candidate.issueFingerprints.every(isValidIntegrityFingerprint)) {
+        throw new Error(`Malformed fingerprint format in run ${candidate.id}.`);
+      }
+      typedRuns.push(candidate);
     }
+    const runs = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(typedRuns));
     const baselineCandidate =
       typeof parsedRecord.selectedBaselineRunId === 'string' ? parsedRecord.selectedBaselineRunId : null;
     const baselineRunId = baselineCandidate && runs.some((run) => run.id === baselineCandidate) ? baselineCandidate : null;
@@ -2971,11 +2988,14 @@ export function useTripStore() {
 
   const importIntegrityHistory = (runs: IntegrityAuditRun[], baselineRunId: string | null) => {
     const normalizedRuns = trimIntegrityHistoryRuns(sortIntegrityHistoryRuns(runs));
+    const nextBaseline =
+      baselineRunId && normalizedRuns.some((run) => run.id === baselineRunId) ? baselineRunId : null;
     setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns(normalizedRuns);
-    setSelectedIntegrityBaselineRunId(
-      baselineRunId && normalizedRuns.some((run) => run.id === baselineRunId) ? baselineRunId : null,
-    );
+    setSelectedIntegrityBaselineRunId(nextBaseline);
+    if (!nextBaseline) {
+      window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+    }
   };
 
   const setIntegrityBaselineRun = (runId: string) => {
@@ -2987,18 +3007,26 @@ export function useTripStore() {
 
   const clearIntegrityBaselineRun = () => {
     setSelectedIntegrityBaselineRunId(null);
+    window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
   };
 
   const deleteIntegrityRun = (runId: string) => {
     setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns((currentRuns) => currentRuns.filter((run) => run.id !== runId));
-    setSelectedIntegrityBaselineRunId((currentBaseline) => (currentBaseline === runId ? null : currentBaseline));
+    setSelectedIntegrityBaselineRunId((currentBaseline) => {
+      if (currentBaseline === runId) {
+        window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+        return null;
+      }
+      return currentBaseline;
+    });
   };
 
   const clearIntegrityHistory = () => {
     setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns([]);
     setSelectedIntegrityBaselineRunId(null);
+    window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
   };
 
   const compactIntegrityHistory = (): IntegrityHistoryCompactionPreview => {
@@ -3054,6 +3082,9 @@ export function useTripStore() {
     setIntegrityHistoryParseStatus('valid');
     setIntegrityAuditRuns(trimmed);
     setSelectedIntegrityBaselineRunId(resultingBaselineRunId);
+    if (!resultingBaselineRunId) {
+      window.localStorage.removeItem(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+    }
     return {
       duplicateRunsRemoved,
       malformedRunsRemoved,
@@ -3064,6 +3095,49 @@ export function useTripStore() {
       resultingRunCount: trimmed.length,
       resultingBaselineRunId,
     };
+  };
+
+  const recordSimulationAccuracy = (
+    selectedIssueIds: string[],
+    nextReport: IntegrityAuditReport,
+    beforeFingerprints: Set<string>,
+  ) => {
+    if (!lastIntegrityRepairSimulation) {
+      return;
+    }
+    const selectedExpected = [...lastIntegrityRepairSimulation.selectedRepairIssueIds].sort().join(',');
+    const selectedActual = [...selectedIssueIds].sort().join(',');
+    const afterFingerprints = new Set(nextReport.issues.map(buildIntegrityIssueFingerprint));
+    const actualResolvedFingerprintCount = [...beforeFingerprints].filter(
+      (fingerprint) => !afterFingerprints.has(fingerprint),
+    ).length;
+    const predictedResolved = lastIntegrityRepairSimulation.resolvedFingerprints.length;
+    const status = classifySimulationAccuracy({
+      selectionMatches: selectedExpected === selectedActual,
+      predictedIssueTotal: lastIntegrityRepairSimulation.issueTotalsAfter,
+      actualIssueTotal: nextReport.issueCount,
+      predictedWarningCount: lastIntegrityRepairSimulation.warningCountAfter,
+      actualWarningCount: nextReport.warningCount,
+      predictedRepairableErrorCount: lastIntegrityRepairSimulation.repairableErrorCountAfter,
+      actualRepairableErrorCount: nextReport.repairableErrorCount,
+      predictedBlockingErrorCount: lastIntegrityRepairSimulation.blockingErrorCountAfter,
+      actualBlockingErrorCount: nextReport.blockingErrorCount,
+      predictedResolvedFingerprintCount: predictedResolved,
+      actualResolvedFingerprintCount,
+    });
+    setLastIntegritySimulationAccuracy({
+      predictedIssueTotal: lastIntegrityRepairSimulation.issueTotalsAfter,
+      actualIssueTotal: nextReport.issueCount,
+      predictedWarningCount: lastIntegrityRepairSimulation.warningCountAfter,
+      actualWarningCount: nextReport.warningCount,
+      predictedRepairableErrorCount: lastIntegrityRepairSimulation.repairableErrorCountAfter,
+      actualRepairableErrorCount: nextReport.repairableErrorCount,
+      predictedBlockingErrorCount: lastIntegrityRepairSimulation.blockingErrorCountAfter,
+      actualBlockingErrorCount: nextReport.blockingErrorCount,
+      predictedResolvedFingerprintCount: predictedResolved,
+      actualResolvedFingerprintCount,
+      status,
+    });
   };
 
   const runIntegrityDiagnostics = (): IntegrityDiagnosticsSummary => {
@@ -3125,6 +3199,33 @@ export function useTripStore() {
     const baselineFindings: string[] = [];
     if (selectedIntegrityBaselineRunId && !integrityAuditRuns.some((run) => run.id === selectedIntegrityBaselineRunId)) {
       baselineFindings.push('Selected baseline does not exist in audit history.');
+    }
+    const rawBaselineValue = safeReadStorageValue(INTEGRITY_HISTORY_BASELINE_STORAGE_KEY);
+    if (rawBaselineValue !== null) {
+      try {
+        const parsedBaseline: unknown = JSON.parse(rawBaselineValue);
+        if (typeof parsedBaseline === 'string') {
+          const rawHistoryValue = safeReadStorageValue(INTEGRITY_HISTORY_STORAGE_KEY);
+          let rawHistoryContainsBaseline = false;
+          if (rawHistoryValue) {
+            try {
+              const parsedHistory: unknown = JSON.parse(rawHistoryValue);
+              if (Array.isArray(parsedHistory)) {
+                rawHistoryContainsBaseline = parsedHistory.some(
+                  (entry) => isIntegrityAuditRun(entry) && entry.id === parsedBaseline,
+                );
+              }
+            } catch {
+              rawHistoryContainsBaseline = false;
+            }
+          }
+          if (!rawHistoryContainsBaseline) {
+            baselineFindings.push('Invalid baseline reference: Yes');
+          }
+        }
+      } catch {
+        baselineFindings.push('Baseline storage has invalid type.');
+      }
     }
     if (latestVsBaselineChangeSummary) {
       const baselineRunExists = integrityAuditRuns.some((run) => run.id === latestVsBaselineChangeSummary.baselineRunId);
@@ -3463,7 +3564,17 @@ export function useTripStore() {
     unresolvedCount: number;
   } => {
     if (selectedIssueIds.length === 0) {
-      return { ok: false, message: 'No repairable issues selected.', appliedCount: 0, unresolvedCount: 0 };
+      const beforeFingerprints = new Set(
+        integrityAuditReport?.issues.map(buildIntegrityIssueFingerprint) ?? [],
+      );
+      const nextReport = integrityAuditReport ?? runIntegrityAudit('after-repair');
+      recordSimulationAccuracy([], nextReport, beforeFingerprints);
+      return {
+        ok: false,
+        message: 'No repairable issues selected.',
+        appliedCount: 0,
+        unresolvedCount: nextReport.issueCount,
+      };
     }
     runIntegrityAudit('before-repair');
 
@@ -3550,43 +3661,11 @@ export function useTripStore() {
     }
 
     setLastSuccessfulPersistenceAt(new Date().toISOString());
+    const beforeRepairFingerprints = new Set(
+      integrityAuditReport?.issues.map(buildIntegrityIssueFingerprint) ?? [],
+    );
     const nextReport = runIntegrityAudit('after-repair');
-    if (lastIntegrityRepairSimulation) {
-      const selectedExpected = [...lastIntegrityRepairSimulation.selectedRepairIssueIds].sort().join(',');
-      const selectedActual = [...selectedIssueIds].sort().join(',');
-      if (selectedExpected === selectedActual) {
-        const actualResolvedFingerprintCount = (() => {
-          const beforeFingerprints = new Set(integrityAuditReport?.issues.map(buildIntegrityIssueFingerprint) ?? []);
-          const afterFingerprints = new Set(nextReport.issues.map(buildIntegrityIssueFingerprint));
-          return [...beforeFingerprints].filter((fingerprint) => !afterFingerprints.has(fingerprint)).length;
-        })();
-        const sameCounts =
-          lastIntegrityRepairSimulation.issueTotalsAfter === nextReport.issueCount &&
-          lastIntegrityRepairSimulation.warningCountAfter === nextReport.warningCount &&
-          lastIntegrityRepairSimulation.repairableErrorCountAfter === nextReport.repairableErrorCount &&
-          lastIntegrityRepairSimulation.blockingErrorCountAfter === nextReport.blockingErrorCount;
-        const predictedResolved = lastIntegrityRepairSimulation.resolvedFingerprints.length;
-        const status: IntegritySimulationAccuracySummary['status'] =
-          sameCounts && predictedResolved === actualResolvedFingerprintCount
-            ? 'Exact Match'
-            : Math.abs(lastIntegrityRepairSimulation.issueTotalsAfter - nextReport.issueCount) <= 1
-              ? 'Partial Match'
-              : 'Diverged';
-        setLastIntegritySimulationAccuracy({
-          predictedIssueTotal: lastIntegrityRepairSimulation.issueTotalsAfter,
-          actualIssueTotal: nextReport.issueCount,
-          predictedWarningCount: lastIntegrityRepairSimulation.warningCountAfter,
-          actualWarningCount: nextReport.warningCount,
-          predictedRepairableErrorCount: lastIntegrityRepairSimulation.repairableErrorCountAfter,
-          actualRepairableErrorCount: nextReport.repairableErrorCount,
-          predictedBlockingErrorCount: lastIntegrityRepairSimulation.blockingErrorCountAfter,
-          actualBlockingErrorCount: nextReport.blockingErrorCount,
-          predictedResolvedFingerprintCount: predictedResolved,
-          actualResolvedFingerprintCount,
-          status,
-        });
-      }
-    }
+    recordSimulationAccuracy(selectedIssueIds, nextReport, beforeRepairFingerprints);
     return {
       ok: true,
       message: `Applied ${appliedCount} repair${appliedCount === 1 ? '' : 's'}.`,

@@ -62,3 +62,45 @@ export const getTrendWindowRuns = <T>(runs: T[], window: IntegrityTrendWindow): 
   }
   return runs;
 };
+
+export type SimulationAccuracyStatus = 'Exact Match' | 'Partial Match' | 'Diverged';
+
+export type SimulationAccuracyInput = {
+  selectionMatches: boolean;
+  predictedIssueTotal: number;
+  actualIssueTotal: number;
+  predictedWarningCount: number;
+  actualWarningCount: number;
+  predictedRepairableErrorCount: number;
+  actualRepairableErrorCount: number;
+  predictedBlockingErrorCount: number;
+  actualBlockingErrorCount: number;
+  predictedResolvedFingerprintCount: number;
+  actualResolvedFingerprintCount: number;
+};
+
+/**
+ * Deterministic simulation accuracy classification:
+ * - Selection mismatch between simulate and apply => Diverged
+ * - Exact Match when all severity totals and resolved fingerprint counts match
+ * - Partial Match when issue-total delta is within 1
+ * - Diverged otherwise
+ */
+export const classifySimulationAccuracy = (input: SimulationAccuracyInput): SimulationAccuracyStatus => {
+  if (!input.selectionMatches) {
+    return 'Diverged';
+  }
+  const sameCounts =
+    input.predictedIssueTotal === input.actualIssueTotal &&
+    input.predictedWarningCount === input.actualWarningCount &&
+    input.predictedRepairableErrorCount === input.actualRepairableErrorCount &&
+    input.predictedBlockingErrorCount === input.actualBlockingErrorCount &&
+    input.predictedResolvedFingerprintCount === input.actualResolvedFingerprintCount;
+  if (sameCounts) {
+    return 'Exact Match';
+  }
+  if (Math.abs(input.predictedIssueTotal - input.actualIssueTotal) <= 1) {
+    return 'Partial Match';
+  }
+  return 'Diverged';
+};

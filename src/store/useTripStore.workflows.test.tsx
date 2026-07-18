@@ -125,4 +125,47 @@ describe('useTripStore workflow regression coverage', () => {
     });
     expect(result.current.integrityAuditRuns.length).toBeLessThanOrEqual(20);
   });
+
+  it('round-trips snapshot history export/import and preserves pin state', () => {
+    const { result } = renderHook(() => useTripStore());
+    act(() => {
+      result.current.addStop();
+    });
+    const snapshotId = result.current.snapshots[0]?.id;
+    expect(snapshotId).toBeTruthy();
+
+    act(() => {
+      if (snapshotId) {
+        result.current.updateSnapshotDetails(snapshotId, 'Pinned stop', 'Keep me');
+        result.current.setSnapshotPinned(snapshotId, true);
+      }
+    });
+
+    const exported = result.current.toSnapshotHistoryJson();
+    const parsed = result.current.parseSnapshotHistoryBackup(exported);
+    expect(parsed.snapshots.some((snapshot) => snapshot.pinned && snapshot.label === 'Pinned stop')).toBe(true);
+
+    act(() => {
+      result.current.importSnapshotHistory(parsed.snapshots);
+    });
+    expect(result.current.snapshots.some((snapshot) => snapshot.pinned && snapshot.label === 'Pinned stop')).toBe(
+      true,
+    );
+  });
+
+  it('rejects unsupported snapshot history versions without mutating snapshots', () => {
+    const { result } = renderHook(() => useTripStore());
+    act(() => {
+      result.current.addStop();
+    });
+    const before = JSON.stringify(result.current.snapshots);
+    const invalid = {
+      schema: 'travel-buddy-snapshot-history',
+      snapshotHistoryVersion: 999,
+      exportedAt: new Date().toISOString(),
+      snapshots: result.current.snapshots,
+    };
+    expect(() => result.current.parseSnapshotHistoryBackup(JSON.stringify(invalid))).toThrow(/not supported/i);
+    expect(JSON.stringify(result.current.snapshots)).toBe(before);
+  });
 });

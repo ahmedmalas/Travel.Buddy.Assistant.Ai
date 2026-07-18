@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   average,
   calculateIntegrityHealthScoreFromCounts,
+  classifySimulationAccuracy,
   classifyTrendDirection,
   getTrendWindowRuns,
   roundToTwo,
@@ -43,5 +44,44 @@ describe('integrityCalculations', () => {
     expect(getTrendWindowRuns(runs, 'all-retained')).toEqual(runs);
     expect(average([1, 2, 3])).toBe(2);
     expect(roundToTwo(1.236)).toBe(1.24);
+  });
+
+  it('classifies Exact Match, Partial Match, and Diverged simulation accuracy', () => {
+    const base = {
+      selectionMatches: true,
+      predictedIssueTotal: 3,
+      actualIssueTotal: 3,
+      predictedWarningCount: 1,
+      actualWarningCount: 1,
+      predictedRepairableErrorCount: 1,
+      actualRepairableErrorCount: 1,
+      predictedBlockingErrorCount: 1,
+      actualBlockingErrorCount: 1,
+      predictedResolvedFingerprintCount: 2,
+      actualResolvedFingerprintCount: 2,
+    };
+    expect(classifySimulationAccuracy(base)).toBe('Exact Match');
+    expect(
+      classifySimulationAccuracy({
+        ...base,
+        actualIssueTotal: 4,
+        actualWarningCount: 2,
+      }),
+    ).toBe('Partial Match');
+    expect(
+      classifySimulationAccuracy({
+        ...base,
+        actualIssueTotal: 8,
+        actualWarningCount: 4,
+        actualRepairableErrorCount: 2,
+        actualBlockingErrorCount: 2,
+      }),
+    ).toBe('Diverged');
+    expect(
+      classifySimulationAccuracy({
+        ...base,
+        selectionMatches: false,
+      }),
+    ).toBe('Diverged');
   });
 });

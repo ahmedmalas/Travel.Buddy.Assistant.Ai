@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TripWorkspace } from './TripWorkspace';
@@ -80,5 +80,57 @@ describe('TripWorkspace UI smoke coverage', () => {
     confirmButton.focus();
     await user.keyboard('{Enter}');
     expect(screen.queryByRole('button', { name: /Confirm/i })).not.toBeInTheDocument();
+  });
+
+  it('runs integrity diagnostics and surfaces overall status feedback', async () => {
+    const user = userEvent.setup();
+    render(<TripWorkspace />);
+    await user.click(screen.getAllByRole('button', { name: /Run Diagnostics/i })[0]);
+    expect(await screen.findByText(/Integrity diagnostics completed:/i)).toBeInTheDocument();
+  });
+
+  it('simulates selected repairs after an integrity audit', async () => {
+    const user = userEvent.setup();
+    localStorage.setItem(
+      TRIP_KEY,
+      JSON.stringify({
+        tripName: '',
+        stops: [{ id: 'stop-1', title: '', day: 1, order: 1, notes: '' }],
+      }),
+    );
+    render(<TripWorkspace />);
+    await user.click(screen.getByRole('button', { name: /Run Integrity Audit/i }));
+    await user.click(screen.getByRole('button', { name: /Simulate Selected Repairs/i }));
+    expect(await screen.findByText(/Simulation complete/i)).toBeInTheDocument();
+    expect(screen.getByText(/Repair simulation summary/i)).toBeInTheDocument();
+  });
+
+  it('exports trip backup JSON through the download control', async () => {
+    const user = userEvent.setup();
+    const createObjectURL = vi.fn(() => 'blob:backup');
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal('URL', {
+      ...URL,
+      createObjectURL,
+      revokeObjectURL,
+    });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+
+    render(<TripWorkspace />);
+    await user.click(screen.getByRole('button', { name: /Export backup/i }));
+    expect(await screen.findByText(/Backup exported:/i)).toBeInTheDocument();
+    expect(createObjectURL).toHaveBeenCalled();
+    expect(clickSpy).toHaveBeenCalled();
+  });
+
+  it('shows history validation panel counters after audit activity', async () => {
+    const user = userEvent.setup();
+    render(<TripWorkspace />);
+    await user.click(screen.getByRole('button', { name: /Run Integrity Audit/i }));
+    const validationLabels = screen.getAllByText(/History validation:/i);
+    const validation = validationLabels[validationLabels.length - 1]?.closest('div');
+    expect(validation).toBeTruthy();
+    expect(within(validation as HTMLElement).getByText(/Invalid baseline reference:/i)).toBeInTheDocument();
+    expect(within(validation as HTMLElement).getByText(/Duplicate run IDs:/i)).toBeInTheDocument();
   });
 });
