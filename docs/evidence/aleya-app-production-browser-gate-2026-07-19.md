@@ -96,8 +96,15 @@ Orphan cleanup: app delete path removes storage object + metadata row in UI flow
 | Storage verified | **PASS** |
 | Persistence verified | **PASS** |
 | Security verified | **PASS** |
-| Preview deployment healthy | **PASS** |
-| No outstanding production blockers | **PASS** for app/cloud gates (note: auth email `redirect_to` still includes `http://localhost:3000` in confirm links — set Site URL / redirect allow-list in Supabase dashboard for cleaner UX) |
+| Preview deployment healthy | **PARTIAL** — `c79ada0` READY/verified; tip `4f53046` rate-limited |
+| No outstanding production blockers | **BLOCKED** by tip Vercel check (`build-rate-limit`); app/cloud gates otherwise PASS |
 
-**PR #20 undrafted** after preview READY + Account A/B/storage/security gates.
+**PR returned to draft** after tip SHA `4f53046` hit `build-rate-limit` again; `c79ada0` preview remains READY and verified.
 **Merge still depends on PR #19** being merged (or explicit human exception).
+
+## 9. Follow-up: tip SHA after undraft attempt
+
+Evidence-only commit `4f53046` re-triggered Vercel and received **`build-rate-limit`** again.  
+App preview for `c79ada0` (`dpl_6B3Cz6wXYNEXa9SrkyEpCkPUCRBC`) remains **READY** and was browser-verified.
+
+**PR #20 returned to draft** until the branch tip has a healthy Vercel check (or rate limit clears).
