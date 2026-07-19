@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { convertCurrency } from './currency';
 import { sumCosts, createSimulatedOffer } from './adapters/offerFactory';
-import { listAdapters, adaptersForCategory } from './adapters/registry';
+import { listAdapters, adaptersForCategory, listLiveAdapters } from './adapters/registry';
+import {
+  areLiveProvidersEnabled,
+  getInventoryMode,
+  getInventoryModeBanner,
+  getInventoryModeClaims,
+} from './adapters/inventoryMode';
 import { searchProvidersConcurrently } from './adapters/searchOrchestrator';
 import { MOCK_ADAPTERS } from './adapters/mockAdapters';
 import { rankOffers, mergeScoringWeights } from './ranking/ranker';
@@ -62,6 +68,20 @@ describe('deal-engine core (slices 73–88)', () => {
       expect(adaptersForCategory(category).length).toBeGreaterThan(0);
     }
     expect(MOCK_ADAPTERS.every((adapter) => adapter.isLive === false)).toBe(true);
+  });
+
+  it('keeps production inventory in demo-simulated mode with no live adapters', () => {
+    expect(listLiveAdapters()).toHaveLength(0);
+    expect(getInventoryMode()).toBe('demo-simulated');
+    expect(areLiveProvidersEnabled()).toBe(false);
+    expect(getInventoryModeBanner()).toMatch(/LIVE PROVIDERS DISABLED/i);
+    expect(getInventoryModeClaims()).toEqual({
+      livePrices: false,
+      liveAvailability: false,
+      otaPartnerships: false,
+      guaranteedCheapest: false,
+      realBooking: false,
+    });
   });
 
   it('never ranks on headline base price alone', () => {

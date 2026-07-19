@@ -4,23 +4,14 @@ Travel Buddy Assistant AI is an AI-powered travel planning and concierge applica
 
 ## Current verified baseline
 
-`main` includes Slices **9–88**. Active finalisation work completes **Slices 89–100**:
+`main` @ `5175d14` includes Slices **9–100**. Production activation work lives on `cursor/production-launch-03b5`.
 
-- Universal import (ICS/CSV/email/PDF-text/backups) with confidence review
-- Trip Health Score audits
-- Offline indicators + degraded mode helpers
-- Performance (code splitting, virtual lists, search helpers)
-- Accessibility + security hardening checklists
-- Local privacy-respecting analytics
-- Release centre (flags, notes, compatibility)
-- Operations dashboard
-- Developer platform docs + launch readiness reports
+- Local/demo mode remains the default until `VITE_SUPABASE_*` points at the verified Travel Buddy project
+- Cloud target: **aleya travel assistant** (`jtktojbvbmiewpntpvhe`)
+- Live commercial providers and payments remain disabled
+- Backup schema version: **7** (imports v2–v7)
 
-Local/demo mode remains the default. Cloud mode stays inactive unless a verified Travel Buddy Supabase project is linked. Live commercial providers and payments remain disabled.
-
-Backup schema version: **7** (imports v2–v7).
-
-See [`docs/completed-slices.md`](docs/completed-slices.md) and [`docs/launch-readiness-report.md`](docs/launch-readiness-report.md).
+See [`docs/completed-slices.md`](docs/completed-slices.md), [`docs/production-ops-runbook.md`](docs/production-ops-runbook.md), and [`docs/production-launch-report.md`](docs/production-launch-report.md).
 
 ## Scripts
 
@@ -32,13 +23,14 @@ npm test
 npm run test:coverage
 npm run build
 npm run validate
+npm audit
 ```
 
-## Still required before commercial launch
+## Production activation checklist
 
-1. Verified Travel Buddy Supabase project + migrations
-2. Approved live provider credentials + adapters
-3. Legal disclosure/brand review for live redirects
-4. Production deploy + monitoring
+1. Custom SMTP / production Auth email on Travel Buddy Supabase
+2. Vercel project env vars (Production vs Preview separation)
+3. Deploy + HTTPS domain (do not reuse another product’s domain)
+4. Run full acceptance test on the production URL
 
 Do not fabricate partnerships, conversions, or traffic metrics.

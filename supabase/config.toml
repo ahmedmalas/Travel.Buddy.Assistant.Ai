@@ -1,5 +1,6 @@
 # Travel Buddy Supabase project config (local CLI / documentation).
-# Remote migrations are applied only after the Travel Buddy project target is verified.
+# Remote Auth SMTP must be configured with Resend (or another approved SMTP),
+# never with Supabase's built-in development mailer for production launch.
 
 project_id = "travel-buddy-assistant-ai"
 
@@ -11,8 +12,35 @@ major_version = 17
 
 [auth]
 enabled = true
+# Replace with the approved production domain after Vercel bind.
 site_url = "http://127.0.0.1:5173"
-additional_redirect_urls = ["http://127.0.0.1:5173"]
+additional_redirect_urls = [
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5173/",
+  "https://*.vercel.app",
+  "https://*.vercel.app/",
+]
+enable_signup = true
+enable_anonymous_sign_ins = false
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = true
+# Production: configure SMTP via Dashboard or scripts/configure-production-smtp.sh
+# Provider profile: Resend (smtp.resend.com:587)
+# Sender name: Travel Buddy
+# From: noreply@mail.travelbuddy.app
+# Reply-To: support@travelbuddy.app
+
+[auth.email.template.confirmation]
+subject = "Confirm your Travel Buddy account"
+content_path = "./supabase/templates/confirmation.html"
+
+[auth.email.template.recovery]
+subject = "Reset your Travel Buddy password"
+content_path = "./supabase/templates/recovery.html"
 
 [storage]
 enabled = true

@@ -96,6 +96,7 @@ import {
   clearAuthError,
   hydrateAuthFromSession,
   liveForgotPassword,
+  liveResendVerification,
   liveResetPassword,
   liveSignIn,
   liveSignOut,
@@ -1344,7 +1345,22 @@ export function useTripStore() {
   const [vaultFilter, setVaultFilter] = useState<VaultFilterKey>('all');
   const [vaultSort, setVaultSort] = useState<VaultSortKey>('lastOpened');
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
-  const [authState, setAuthState] = useState<AuthShellState>(() => loadAuthState());
+  const [authState, setAuthState] = useState<AuthShellState>(() => {
+    const loaded = loadAuthState();
+    // Cloud env present: never boot into demo-local (hydrate will refine session next).
+    if (isSupabaseConfigured() && loaded.mode === 'demo-local') {
+      return {
+        ...loaded,
+        mode: 'signed-out',
+        user: null,
+        screen: 'sign-in',
+        message: 'Cloud Auth ready. Sign in to sync trips.',
+        resetToken: null,
+        updatedAt: new Date().toISOString(),
+      };
+    }
+    return loaded;
+  });
   const [authProvider, setAuthProvider] = useState<'supabase' | 'local-demo'>(() =>
     isSupabaseConfigured() ? 'supabase' : 'local-demo',
   );
@@ -1514,6 +1530,23 @@ export function useTripStore() {
   useEffect(() => {
     persistAuthState(authState);
   }, [authState]);
+  useEffect(() => {
+    if (!isSupabaseConfigured()) return;
+    let cancelled = false;
+    void hydrateAuthFromSession(loadAuthState()).then((result) => {
+      if (cancelled) return;
+      setAuthState((current) => {
+        // Do not clobber a sign-in that completed while getSession was in flight.
+        if (current.mode === 'signed-in' && current.user) return current;
+        return result.state;
+      });
+      setAuthProvider((current) => (current === 'supabase' ? current : result.provider));
+      setEmailVerified((current) => current ?? result.emailVerified);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
   useEffect(() => {
     persistSyncState(syncState);
   }, [syncState]);
@@ -5315,6 +5348,13 @@ export function useTripStore() {
       const result = await liveForgotPassword(authState, email);
       setAuthState(result.state);
       setAuthProvider(result.provider);
+      return result;
+    },
+    authResendVerification: async (email: string) => {
+      const result = await liveResendVerification(authState, email);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
       return result;
     },
     authResetPassword: async (token: string, password: string) => {

@@ -11,6 +11,7 @@ export function AuthShellPanel() {
     authSignUp,
     authSignOut,
     authForgotPassword,
+    authResendVerification,
     authResetPassword,
     authEnterDemoMode,
     authSetScreen,
@@ -48,7 +49,7 @@ export function AuthShellPanel() {
         kind={supabaseTargetVerification.verified ? 'info' : 'error'}
         message={
           supabaseTargetVerification.verified
-            ? 'Supabase target verified.'
+            ? `Supabase target verified: ${supabaseTargetVerification.projectName} (${supabaseTargetVerification.projectRef ?? 'ref pending'}).`
             : `Target unverified — ${supabaseTargetVerification.reason}`
         }
       />
@@ -150,6 +151,11 @@ export function AuthShellPanel() {
           <PrimaryButton type="button" disabled={busy} onClick={() => void run(() => authForgotPassword(email))}>
             Send reset email / token
           </PrimaryButton>
+        ) : null}
+        {(authState.screen === 'sign-in' || authState.screen === 'sign-up' || emailVerified === false) ? (
+          <SecondaryButton type="button" disabled={busy} onClick={() => void run(() => authResendVerification(email))}>
+            Resend verification email
+          </SecondaryButton>
         ) : null}
         {authState.screen === 'reset-password' ? (
           <PrimaryButton

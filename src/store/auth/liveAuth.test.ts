@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import { clearAuthError, liveForgotPassword, liveSignIn, liveSignOut, liveSignUp } from './liveAuth';
+import {
+  clearAuthError,
+  hydrateAuthFromSession,
+  liveForgotPassword,
+  liveResendVerification,
+  liveSignIn,
+  liveSignOut,
+  liveSignUp,
+} from './liveAuth';
 import { createDefaultAuthState } from './authShell';
 
 describe('liveAuth local/demo fallback', () => {
@@ -56,5 +64,33 @@ describe('liveAuth local/demo fallback', () => {
     const signedOut = await liveSignOut(signedIn.state, null);
     expect(signedOut.state.mode).toBe('signed-out');
     expect(clearAuthError({ ...signedOut.state, message: 'boom' }).message).toBeNull();
+  });
+
+  it('maps rate-limit style failures on resend verification', async () => {
+    const client = {
+      auth: {
+        resend: vi.fn().mockResolvedValue({ error: { message: 'Rate limit exceeded' } }),
+      },
+    } as never;
+    const result = await liveResendVerification(createDefaultAuthState(), 'a@b.com', client);
+    expect(result.error).toMatch(/Too many/i);
+  });
+
+  it('requires cloud auth for verification resend in local mode', async () => {
+    const result = await liveResendVerification(createDefaultAuthState(), 'a@b.com', null);
+    expect(result.provider).toBe('local-demo');
+    expect(result.error).toMatch(/not configured/i);
+  });
+
+  it('leaves demo-local when a supabase client has no active session', async () => {
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      },
+    } as never;
+    const result = await hydrateAuthFromSession(createDefaultAuthState(), client);
+    expect(result.provider).toBe('supabase');
+    expect(result.state.mode).toBe('signed-out');
+    expect(result.state.user).toBeNull();
   });
 });

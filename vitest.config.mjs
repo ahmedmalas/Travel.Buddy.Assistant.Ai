@@ -6,6 +6,12 @@ export default defineConfig({
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
     include: ['src/**/*.test.ts', 'src/**/*.test.tsx'],
+    // Keep unit tests on local/demo auth/storage even if a developer has `.env.local`.
+    env: {
+      VITE_SUPABASE_URL: '',
+      VITE_SUPABASE_ANON_KEY: '',
+      VITE_SUPABASE_PROJECT_REF: '',
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html'],

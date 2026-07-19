@@ -1,26 +1,33 @@
-# Launch Readiness Report (Slice 100)
+# Launch Readiness Report
 
-**Baseline:** Slices 9–100 on a local-first React/Vite app with optional Supabase cloud adapters and mock deal-engine providers.
+**Baseline:** verified `main` @ `5175d14` plus production-launch branch work.
 
-## Ready
+## Ready in product/framework
 
 - Trip vault, itinerary, budget, packing, travellers, documents, collaboration foundation
 - Backup/snapshot/integrity tooling (backup schema v7)
 - Frontend logistics + emergency/journal/assistance
-- Super Deal Engine (demo adapters) + partner centre readiness
+- Super Deal Engine (**demo adapters only**) + partner centre readiness
 - Universal import with review, Trip Health Score, offline indicators
 - Local analytics, feature flags, release/ops dashboards
 - Automated validation gate (`npm run validate`)
 - Accessibility keyboard/focus foundations and security input hardening helpers
+- Dedicated Supabase project `travel-buddy-production` (`farnjmgwcayvkzuaoifk`) with migrations, RLS, storage, isolation proof
+- Production SPA headers (`vercel.json`) and ops runbook
 
-## Not launch-blocking for demo/local use, but required for commercial launch
+## Hard blockers for production launch
 
-- Verified Travel Buddy Supabase project + applied migrations
-- Approved live provider credentials and adapters
-- Legal review of affiliate disclosures for live redirects
-- Production hosting, monitoring, and support runbooks
-- Payments / automatic booking (explicitly out of scope)
+1. **Production email delivery** — configure custom SMTP (or approved provider) on Travel Buddy Auth; do not use the Supabase development mailer
+2. **Vercel authentication + deploy** — set Production env vars, deploy, bind an approved domain (not a domain belonging to another product)
+3. **Full acceptance test on the production domain** after (1) and (2)
+
+## Explicit non-claims
+
+- No live prices / availability
+- No OTA partnerships claimed
+- No guaranteed cheapest deals
+- No real in-app booking / payments
 
 ## Recommendation
 
-The product is a **launch-ready application framework** for local/demo operation and partner onboarding conversations. It is **not** ready to claim live inventory search or commercial booking until remaining integration blockers are cleared.
+**Not launch-ready** until email + Vercel deploy + production acceptance complete. Infrastructure and app boundaries for a safe launch are prepared.

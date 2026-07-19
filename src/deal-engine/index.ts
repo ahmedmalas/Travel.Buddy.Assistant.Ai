@@ -4,6 +4,7 @@ export * from './state';
 export * from './persistence';
 export * from './adapters/types';
 export * from './adapters/registry';
+export * from './adapters/inventoryMode';
 export * from './adapters/searchOrchestrator';
 export * from './adapters/mockAdapters';
 export * from './adapters/offerFactory';
