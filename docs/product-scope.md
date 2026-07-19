@@ -94,9 +94,16 @@ Details: [`docs/completed-slices.md`](completed-slices.md).
 - Partner centre / onboarding framework / growth foundations
 - Backup v6 + deal-engine persistence; docs for adapters, ranking, partnerships, disclosures
 
+### Completed in Slices 89–100 (Finalisation)
+
+- Universal import + Trip Health Score + offline/performance/a11y/security foundations
+- Local analytics, release centre, operations dashboard
+- Developer platform docs + launch readiness / commercial / AI / OTA roadmap reports
+- Backup v7; regression anchors across Slices 9–99
+
 ### Still placeholder / future
 
-Live supplier inventory (after credentials + approval), paid maps, and AI assistant access remain future work. Verified production Supabase project linkage is still pending.
+Live supplier inventory (after credentials + approval), paid maps, and generative AI assistant access remain future work. Verified production Supabase project linkage is still pending.
 
 ## Non-goals for the baseline
 

@@ -109,7 +109,7 @@ describe('useTripStore travel ops slices 61-72', () => {
     expect(result.current.onboardingProgress.completed).toBeGreaterThan(0);
   });
 
-  it('exports backup version 6 with travel ops collections', () => {
+  it('exports backup version 7 with travel ops collections', () => {
     const { result } = renderHook(() => useTripStore());
     act(() => {
       result.current.upsertGroundTransport({
@@ -131,7 +131,7 @@ describe('useTripStore travel ops slices 61-72', () => {
       });
     });
     const backup = result.current.toBackupJson();
-    expect(backup).toContain('"backupVersion": 6');
+    expect(backup).toContain('"backupVersion": 7');
     expect(backup).toContain('groundTransport');
   });
 });

@@ -54,7 +54,7 @@ export function AppShell() {
       </main>
 
       <footer className="border-t border-white/10 px-6 py-8 text-center text-sm text-slate-500">
-        Travel Buddy Assistant AI — Slices 9–88 deal engine + partner platform (local-first + optional cloud).
+        Travel Buddy Assistant AI — Slices 9–100 launch-ready framework (local-first + optional cloud).
       </footer>
     </div>
   );

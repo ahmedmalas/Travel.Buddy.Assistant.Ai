@@ -102,6 +102,18 @@ const PartnerCentrePanel = lazy(() =>
 const GrowthEnginePanel = lazy(() =>
   import('./GrowthEnginePanel').then((module) => ({ default: module.GrowthEnginePanel })),
 );
+const UniversalImportPanel = lazy(() =>
+  import('./UniversalImportPanel').then((module) => ({ default: module.UniversalImportPanel })),
+);
+const TripHealthPanel = lazy(() =>
+  import('./TripHealthPanel').then((module) => ({ default: module.TripHealthPanel })),
+);
+const OpsDashboardPanel = lazy(() =>
+  import('./OpsDashboardPanel').then((module) => ({ default: module.OpsDashboardPanel })),
+);
+const ReleaseCentrePanel = lazy(() =>
+  import('./ReleaseCentrePanel').then((module) => ({ default: module.ReleaseCentrePanel })),
+);
 
 const NAV_GROUPS = [
   {
@@ -124,6 +136,8 @@ const NAV_GROUPS = [
       { id: 'itinerary', label: 'Itinerary' },
       { id: 'calendar', label: 'Calendar' },
       { id: 'destinations', label: 'Destinations' },
+      { id: 'trip-health', label: 'Trip health' },
+      { id: 'universal-import', label: 'Universal import' },
     ],
   },
   {
@@ -170,6 +184,8 @@ const NAV_GROUPS = [
       { id: 'sync', label: 'Sync' },
       { id: 'account', label: 'Account' },
       { id: 'import', label: 'Import' },
+      { id: 'ops', label: 'Operations' },
+      { id: 'release', label: 'Release' },
       { id: 'system', label: 'Backup & integrity' },
     ],
   },
@@ -200,7 +216,8 @@ function TripPlatformInner() {
   const [activeTab, setActiveTab] = useState<TabId>('command');
   const [activeGroup, setActiveGroup] = useState<(typeof NAV_GROUPS)[number]['id']>('home');
   const [focusTabId, setFocusTabId] = useState<TabId | null>(null);
-  const { onboardingState, smartAssistance, unreadNotifications } = useSharedTripStore();
+  const { onboardingState, smartAssistance, unreadNotifications, finalisationState, trackAnalyticsEvent } =
+    useSharedTripStore();
 
   useEffect(() => {
     if (!focusTabId) return;
@@ -217,6 +234,7 @@ function TripPlatformInner() {
     const group = NAV_GROUPS.find((entry) => entry.tabs.some((tab) => tab.id === tabId));
     if (group) setActiveGroup(group.id);
     setActiveTab(tabId);
+    trackAnalyticsEvent('feature_opened', { tab: tabId }, tabId);
     if (moveFocus) setFocusTabId(tabId);
   };
 
@@ -230,6 +248,8 @@ function TripPlatformInner() {
     itinerary: DailyItineraryBoard,
     calendar: CalendarPlanner,
     destinations: DestinationsPanel,
+    'trip-health': TripHealthPanel,
+    'universal-import': UniversalImportPanel,
     'deal-engine': DealEnginePanel,
     partners: PartnerCentrePanel,
     growth: GrowthEnginePanel,
@@ -253,6 +273,8 @@ function TripPlatformInner() {
     sync: SyncEnginePanel,
     account: AccountSettingsPanel,
     import: ImportMigrationPanel,
+    ops: OpsDashboardPanel,
+    release: ReleaseCentrePanel,
     system: () => (
       <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-2 md:p-4">
         <p className="mb-3 px-2 text-sm text-slate-300">
@@ -273,11 +295,15 @@ function TripPlatformInner() {
             <p className="text-sm font-semibold uppercase tracking-[0.32em] text-sky-300">Travel Buddy</p>
             <h2 className="mt-2 text-3xl font-bold text-white md:text-4xl">Trip platform</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Slices 9–88: trip platform plus provider-neutral Super Deal Engine and partner readiness — local/demo
-              adapters by default, no live booking APIs until approved.
+              Slices 9–100 launch-ready framework: trip platform, deal engine, import/health/offline tooling — local/demo
+              by default, no live commercial providers or payments.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <StatusBadge
+              label={finalisationState.offline.network === 'offline' ? 'Offline' : 'Online'}
+              tone={finalisationState.offline.network === 'offline' ? 'warning' : 'success'}
+            />
             {!onboardingState.dismissed ? <StatusBadge label="Onboarding" tone="info" /> : null}
             {smartAssistance.length > 0 ? (
               <StatusBadge label={`${smartAssistance.length} tips`} tone="warning" />
@@ -287,6 +313,11 @@ function TripPlatformInner() {
             ) : null}
           </div>
         </div>
+        {finalisationState.offline.network === 'offline' ? (
+          <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100" role="status">
+            {finalisationState.offline.message}
+          </p>
+        ) : null}
 
         <div className="mt-5 grid gap-3 md:grid-cols-[220px_minmax(0,1fr)]">
           <nav className="flex gap-2 overflow-x-auto md:flex-col md:overflow-visible" aria-label="Platform sections" role="tablist">
