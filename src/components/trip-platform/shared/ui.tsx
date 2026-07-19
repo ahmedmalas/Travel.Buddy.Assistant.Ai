@@ -108,3 +108,94 @@ export function StatusBanner({
     </p>
   );
 }
+
+export function StatusBadge({
+  label,
+  tone = 'neutral',
+}: {
+  label: string;
+  tone?: 'neutral' | 'success' | 'warning' | 'danger' | 'info';
+}) {
+  const styles =
+    tone === 'success'
+      ? 'bg-emerald-400/15 text-emerald-100'
+      : tone === 'warning'
+        ? 'bg-amber-400/15 text-amber-100'
+        : tone === 'danger'
+          ? 'bg-rose-400/15 text-rose-100'
+          : tone === 'info'
+            ? 'bg-sky-400/15 text-sky-100'
+            : 'bg-white/10 text-slate-200';
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium uppercase tracking-[0.14em] ${styles}`}>
+      {label}
+    </span>
+  );
+}
+
+export function Modal({
+  title,
+  children,
+  onClose,
+  open,
+}: {
+  open: boolean;
+  title: string;
+  children: ReactNode;
+  onClose: () => void;
+}) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/70 p-4 md:items-center" role="dialog" aria-modal="true" aria-label={title}>
+      <button type="button" className="absolute inset-0 cursor-default" aria-label="Close dialog overlay" onClick={onClose} />
+      <div className="relative z-10 w-full max-w-lg rounded-3xl border border-white/15 bg-slate-900 p-5 shadow-2xl">
+        <div className="flex items-start justify-between gap-3">
+          <h3 className="text-lg font-semibold text-white">{title}</h3>
+          <SecondaryButton type="button" onClick={onClose}>
+            Close
+          </SecondaryButton>
+        </div>
+        <div className="mt-4">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+export function DataTable({
+  headers,
+  rows,
+  empty,
+}: {
+  headers: string[];
+  rows: ReactNode[][];
+  empty?: ReactNode;
+}) {
+  if (rows.length === 0) return <>{empty ?? null}</>;
+  return (
+    <div className="overflow-x-auto rounded-2xl border border-white/10">
+      <table className="min-w-full text-left text-sm text-slate-200">
+        <thead className="bg-white/[0.04] text-xs uppercase tracking-[0.16em] text-slate-400">
+          <tr>
+            {headers.map((header) => (
+              <th key={header} className="px-3 py-2 font-medium">
+                {header}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr key={index} className="border-t border-white/10">
+              {row.map((cell, cellIndex) => (
+                <td key={cellIndex} className="px-3 py-2 align-top">
+                  {cell}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+

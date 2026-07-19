@@ -217,7 +217,7 @@ describe('useTripStore platform slices 29-36', () => {
     });
 
     const backupJson = result.current.toBackupJson();
-    expect(backupJson).toContain('"backupVersion": 4');
+    expect(backupJson).toContain('"backupVersion": 5');
     expect(backupJson).toContain('Oslo');
 
     act(() => {

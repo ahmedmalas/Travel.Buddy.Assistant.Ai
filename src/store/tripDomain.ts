@@ -1,3 +1,17 @@
+import {
+  createEmptyTravelOps,
+  migrateTravelOps,
+  type AccommodationStay,
+  type ChecklistItem,
+  type DailyRoute,
+  type DestinationProfile,
+  type EmergencyCentre,
+  type FlightSegment,
+  type GroundTransport,
+  type JournalEntry,
+  type SavedPlace,
+} from './travelOpsDomain';
+
 export type TripPurpose = 'leisure' | 'business' | 'family' | 'adventure' | 'other';
 export type TripStatus = 'draft' | 'active' | 'archived';
 
@@ -183,6 +197,16 @@ export type TripData = {
   activityLog: ActivityLogEntry[];
   documents?: TripDocument[];
   collaboration?: CollaborationState;
+  /** Slices 61–68 travel operations collections (optional for older backups). */
+  destinations?: DestinationProfile[];
+  flights?: FlightSegment[];
+  stays?: AccommodationStay[];
+  groundTransport?: GroundTransport[];
+  savedPlaces?: SavedPlace[];
+  dailyRoutes?: DailyRoute[];
+  checklistItems?: ChecklistItem[];
+  emergency?: EmergencyCentre;
+  journalEntries?: JournalEntry[];
 };
 
 export type TripSetupInput = {
@@ -276,25 +300,37 @@ export const createDefaultPackingList = (
   items: [],
 });
 
-export const createEmptyTrip = (overrides: Partial<TripData> = {}): TripData => ({
-  tripName: 'Untitled Trip',
-  destination: '',
-  departureDate: '',
-  returnDate: '',
-  travellerCount: 1,
-  purpose: 'leisure',
-  budget: 0,
-  currency: 'USD',
-  notes: '',
-  status: 'draft',
-  stops: [],
-  bookings: [],
-  expenses: [],
-  packingLists: [createDefaultPackingList()],
-  travellers: [],
-  activityLog: [],
-  ...overrides,
-});
+export const createEmptyTrip = (overrides: Partial<TripData> = {}): TripData => {
+  const ops = createEmptyTravelOps();
+  return {
+    tripName: 'Untitled Trip',
+    destination: '',
+    departureDate: '',
+    returnDate: '',
+    travellerCount: 1,
+    purpose: 'leisure',
+    budget: 0,
+    currency: 'USD',
+    notes: '',
+    status: 'draft',
+    stops: [],
+    bookings: [],
+    expenses: [],
+    packingLists: [createDefaultPackingList()],
+    travellers: [],
+    activityLog: [],
+    destinations: ops.destinations,
+    flights: ops.flights,
+    stays: ops.stays,
+    groundTransport: ops.groundTransport,
+    savedPlaces: ops.savedPlaces,
+    dailyRoutes: ops.dailyRoutes,
+    checklistItems: ops.checklistItems,
+    emergency: ops.emergency,
+    journalEntries: ops.journalEntries,
+    ...overrides,
+  };
+};
 
 export const createSeededTrip = (): TripData =>
   createEmptyTrip({
@@ -642,6 +678,17 @@ export const migrateTrip = (value: unknown): TripData => {
       ? raw.documents.map((doc) => sanitizeDocument(doc as Partial<TripDocument>))
       : [],
     collaboration: sanitizeCollaborationState(raw.collaboration),
+    ...migrateTravelOps({
+      destinations: raw.destinations,
+      flights: raw.flights,
+      stays: raw.stays,
+      groundTransport: raw.groundTransport,
+      savedPlaces: raw.savedPlaces,
+      dailyRoutes: raw.dailyRoutes,
+      checklistItems: raw.checklistItems,
+      emergency: raw.emergency,
+      journalEntries: raw.journalEntries,
+    }),
   };
 };
 
@@ -668,6 +715,17 @@ export const sanitizeTrip = (trip: TripData): TripData => {
 
 export const cloneTrip = (trip: TripData): TripData => {
   const sanitized = sanitizeTrip(trip);
+  const ops = migrateTravelOps({
+    destinations: sanitized.destinations,
+    flights: sanitized.flights,
+    stays: sanitized.stays,
+    groundTransport: sanitized.groundTransport,
+    savedPlaces: sanitized.savedPlaces,
+    dailyRoutes: sanitized.dailyRoutes,
+    checklistItems: sanitized.checklistItems,
+    emergency: sanitized.emergency,
+    journalEntries: sanitized.journalEntries,
+  });
   return {
     ...sanitized,
     stops: sanitized.stops.map((stop) => ({ ...stop })),
@@ -687,6 +745,25 @@ export const cloneTrip = (trip: TripData): TripData => {
           auditHistory: sanitized.collaboration.auditHistory.map((entry) => ({ ...entry })),
         }
       : undefined,
+    destinations: ops.destinations.map((item) => ({ ...item })),
+    flights: ops.flights.map((item) => ({ ...item, travellerIds: [...item.travellerIds] })),
+    stays: ops.stays.map((item) => ({ ...item, travellerIds: [...item.travellerIds] })),
+    groundTransport: ops.groundTransport.map((item) => ({ ...item, travellerIds: [...item.travellerIds] })),
+    savedPlaces: ops.savedPlaces.map((item) => ({ ...item })),
+    dailyRoutes: ops.dailyRoutes.map((route) => ({
+      ...route,
+      stops: route.stops.map((stop) => ({ ...stop })),
+    })),
+    checklistItems: ops.checklistItems.map((item) => ({ ...item })),
+    emergency: {
+      ...ops.emergency,
+      contacts: ops.emergency.contacts.map((item) => ({ ...item })),
+      embassies: ops.emergency.embassies.map((item) => ({ ...item })),
+      insurance: ops.emergency.insurance.map((item) => ({ ...item })),
+      medical: { ...ops.emergency.medical },
+      workflows: ops.emergency.workflows.map((item) => ({ ...item })),
+    },
+    journalEntries: ops.journalEntries.map((item) => ({ ...item })),
   };
 };
 

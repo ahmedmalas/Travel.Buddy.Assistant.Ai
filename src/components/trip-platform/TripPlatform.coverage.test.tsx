@@ -4,6 +4,10 @@ import { TripPlatform } from './TripPlatform'
 
 const TRIP_KEY = 'travel-buddy:trip-state:v1'
 
+const goTo = (tabId: string) => {
+  fireEvent.change(screen.getByLabelText('Section screen'), { target: { value: tabId } })
+}
+
 describe('TripPlatform deep coverage', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -16,7 +20,7 @@ describe('TripPlatform deep coverage', () => {
   it('supports itinerary CRUD, packing, travellers, and budget expense edits', async () => {
     render(<TripPlatform />)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Itinerary' }))
+    goTo('itinerary')
     fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Museum' } })
     fireEvent.change(screen.getByLabelText('Start'), { target: { value: '10:00' } })
     fireEvent.change(screen.getByLabelText('End'), { target: { value: '12:00' } })
@@ -39,7 +43,7 @@ describe('TripPlatform deep coverage', () => {
     fireEvent.click(within(copyCard).getByRole('button', { name: 'Up' }))
     fireEvent.click(within(copyCard).getByRole('button', { name: 'Delete' }))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Budget' }))
+    goTo('budget')
     fireEvent.change(await screen.findByLabelText('Expense title'), { target: { value: 'Lunch' } })
     fireEvent.change(screen.getByLabelText('Category'), { target: { value: 'food' } })
     fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '25' } })
@@ -53,7 +57,7 @@ describe('TripPlatform deep coverage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save expense' }))
     fireEvent.click(within((await screen.findByText('Lunch')).closest('li')!).getByRole('button', { name: 'Delete' }))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Packing' }))
+    goTo('packing')
     fireEvent.change(await screen.findByLabelText('Item name'), { target: { value: 'Charger' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add packing item' }))
     expect(await screen.findByText(/Charger/)).toBeTruthy()
@@ -63,7 +67,7 @@ describe('TripPlatform deep coverage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Use Weekend getaway' }))
     fireEvent.click(screen.getByRole('button', { name: 'Add custom list' }))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Travellers' }))
+    goTo('travellers')
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Sam' } })
     fireEvent.change(screen.getByLabelText('Nationality'), { target: { value: 'CA' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save traveller' }))
@@ -75,7 +79,7 @@ describe('TripPlatform deep coverage', () => {
     expect(await screen.findByText('Sam Lee')).toBeTruthy()
     fireEvent.click(within(screen.getByText('Sam Lee').closest('article')!).getByRole('button', { name: 'Delete' }))
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Bookings' }))
+    goTo('bookings')
     fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'Train' } })
     fireEvent.change(screen.getByLabelText('Provider'), { target: { value: 'RailCo' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save booking' }))
@@ -93,7 +97,7 @@ describe('TripPlatform deep coverage', () => {
 
   it('shows validation errors on invalid trip setup', async () => {
     render(<TripPlatform />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Trip setup' }))
+    goTo('setup')
     fireEvent.change(await screen.findByLabelText('Trip name'), { target: { value: '' } })
     fireEvent.change(screen.getByLabelText('Destination'), { target: { value: '' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save trip' }))
@@ -103,7 +107,7 @@ describe('TripPlatform deep coverage', () => {
 
   it('creates a new blank trip from setup', async () => {
     render(<TripPlatform />)
-    fireEvent.click(screen.getByRole('tab', { name: 'Trip setup' }))
+    goTo('setup')
     fireEvent.click(await screen.findByRole('button', { name: 'New blank trip' }))
     expect((screen.getByLabelText('Trip name') as HTMLInputElement).value).toBe('Untitled Trip')
   })
