@@ -190,6 +190,20 @@ import {
   type OnboardingState,
   type OnboardingStepId,
 } from './onboarding';
+import {
+  applyPreferenceOverrides,
+  createDefaultPreferenceProfile,
+  createEmptyDealEngineState,
+  createShortlistItem,
+  loadDealEngineState,
+  migrateDealEngineState,
+  persistDealEngineState,
+  type DealEngineState,
+  type ScoringWeights,
+  type ShortlistItem,
+  type TravellerPreferenceProfile,
+  type UniversalOffer,
+} from '../deal-engine';
 
 export type {
   Booking,
@@ -219,6 +233,7 @@ type TripBackup = {
   trip: TripData;
   vault?: TripVaultState;
   templates?: TripTemplate[];
+  dealEngine?: DealEngineState;
 };
 
 type LegacyTripBackup = {
@@ -904,7 +919,9 @@ const countLinkedRecords = (root: Record<string, unknown>): number | null => {
   return Math.max(...possibleCounts);
 };
 
-const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: ImportPreview } => {
+const parseTripBackupPreview = (
+  rawValue: string,
+): { trip: TripData; preview: ImportPreview; dealEngine?: DealEngineState } => {
   let parsed: unknown;
   try {
     parsed = JSON.parse(rawValue);
@@ -995,6 +1012,8 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
   }
 
   const trip = sanitizeTrip(migrateTrip(parsedObject.trip));
+  const dealEngine =
+    parsedObject.dealEngine != null ? migrateDealEngineState(parsedObject.dealEngine) : undefined;
   return {
     trip,
     preview: {
@@ -1005,6 +1024,7 @@ const parseTripBackupPreview = (rawValue: string): { trip: TripData; preview: Im
       itineraryItemCount: trip.stops.length,
       linkedRecordCount: countLinkedRecords(parsedObject),
     },
+    dealEngine,
   };
 };
 
@@ -1324,6 +1344,7 @@ export function useTripStore() {
   accountSettingsRef.current = accountSettings;
   const [cloudMigrationMessage, setCloudMigrationMessage] = useState<string | null>(null);
   const [onboardingState, setOnboardingState] = useState<OnboardingState>(() => loadOnboardingState());
+  const [dealEngineState, setDealEngineState] = useState<DealEngineState>(() => loadDealEngineState());
   const repositories = useMemo(
     () => (isSupabaseConfigured() ? createSupabaseDataRepositories() : createLocalDataRepositories()),
     [],
@@ -1484,6 +1505,9 @@ export function useTripStore() {
   useEffect(() => {
     persistOnboardingState(onboardingState);
   }, [onboardingState]);
+  useEffect(() => {
+    persistDealEngineState(dealEngineState);
+  }, [dealEngineState]);
   useEffect(() => {
     setNotificationState((current) => {
       const next = buildNotificationsFromTrips(vault.trips, current);
@@ -2500,6 +2524,7 @@ export function useTripStore() {
       trip: history.present,
       vault,
       templates,
+      dealEngine: dealEngineState,
     };
     return JSON.stringify(backup, null, 2);
   };
@@ -2530,6 +2555,7 @@ export function useTripStore() {
     window.localStorage.removeItem(LOCAL_SNAPSHOT_STORAGE_KEY);
     window.localStorage.removeItem(VAULT_STORAGE_KEY);
     window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
+    window.localStorage.removeItem(STORAGE_KEYS.dealEngine);
     setActiveTripParseStatus('missing');
     setSnapshotHistoryParseStatus('missing');
     setActiveTripCorruption(null);
@@ -2537,6 +2563,7 @@ export function useTripStore() {
     setActiveTripRawPayloadSize(0);
     setSnapshotHistoryRawPayloadSize(0);
     setSnapshots([]);
+    setDealEngineState(createEmptyDealEngineState());
     const resetVault = migrateVaultState(null, cloneTrip(seededTrip));
     setVault(resetVault);
     setTemplates(migrateTemplates(null));
@@ -5041,6 +5068,81 @@ export function useTripStore() {
       setOnboardingState((current) => applyCompleteOnboardingStep(current, step)),
     dismissOnboarding: () => setOnboardingState((current) => applyDismissOnboarding(current)),
     resetOnboarding: () => setOnboardingState(createResetOnboardingState()),
+    dealEngineState,
+    setDealScoringWeights: (weights: Partial<ScoringWeights>) =>
+      setDealEngineState((current) => ({
+        ...current,
+        scoringWeights: { ...current.scoringWeights, ...weights },
+      })),
+    setActiveDealPreferenceProfile: (id: string | null) =>
+      setDealEngineState((current) => ({ ...current, activePreferenceProfileId: id })),
+    upsertDealPreferenceProfile: (profile: TravellerPreferenceProfile) =>
+      setDealEngineState((current) => {
+        const exists = current.preferenceProfiles.some((entry) => entry.id === profile.id);
+        return {
+          ...current,
+          preferenceProfiles: exists
+            ? current.preferenceProfiles.map((entry) => (entry.id === profile.id ? profile : entry))
+            : [...current.preferenceProfiles, profile],
+        };
+      }),
+    createDealPreferenceProfile: (name: string) => {
+      const profile = createDefaultPreferenceProfile({ name, id: `pref-${crypto.randomUUID()}` });
+      setDealEngineState((current) => ({
+        ...current,
+        preferenceProfiles: [...current.preferenceProfiles, profile],
+        activePreferenceProfileId: profile.id,
+      }));
+      return profile;
+    },
+    overrideActiveDealPreferences: (overrides: Partial<TravellerPreferenceProfile>) =>
+      setDealEngineState((current) => {
+        const active = current.preferenceProfiles.find(
+          (entry) => entry.id === current.activePreferenceProfileId,
+        );
+        if (!active) return current;
+        const next = applyPreferenceOverrides(active, overrides);
+        return {
+          ...current,
+          preferenceProfiles: current.preferenceProfiles.map((entry) =>
+            entry.id === next.id ? next : entry,
+          ),
+        };
+      }),
+    addDealShortlistItem: (offer: UniversalOffer, notes?: string) =>
+      setDealEngineState((current) => {
+        const item = createShortlistItem(offer, notes);
+        if (current.shortlist.some((entry) => entry.offerId === item.offerId)) return current;
+        return { ...current, shortlist: [item, ...current.shortlist] };
+      }),
+    removeDealShortlistItem: (id: string) =>
+      setDealEngineState((current) => ({
+        ...current,
+        shortlist: current.shortlist.filter((entry) => entry.id !== id),
+      })),
+    replaceDealShortlist: (items: ShortlistItem[]) =>
+      setDealEngineState((current) => ({ ...current, shortlist: items })),
+    setDealBookingChecklist: (checklist: DealEngineState['bookingChecklist']) =>
+      setDealEngineState((current) => ({ ...current, bookingChecklist: checklist })),
+    setDealPriceAlerts: (alerts: DealEngineState['priceAlerts']) =>
+      setDealEngineState((current) => ({ ...current, priceAlerts: alerts })),
+    appendDealPriceSnapshots: (snapshots: DealEngineState['priceSnapshots']) =>
+      setDealEngineState((current) => ({
+        ...current,
+        priceSnapshots: [...current.priceSnapshots, ...snapshots].slice(-500),
+      })),
+    appendDealAttributionEvents: (events: DealEngineState['attributionEvents']) =>
+      setDealEngineState((current) => ({
+        ...current,
+        attributionEvents: [...current.attributionEvents, ...events],
+      })),
+    setDealOnboardingRecords: (records: DealEngineState['onboardingRecords']) =>
+      setDealEngineState((current) => ({ ...current, onboardingRecords: records })),
+    setDealLastSearchMeta: (meta: DealEngineState['lastSearchMeta']) =>
+      setDealEngineState((current) => ({ ...current, lastSearchMeta: meta })),
+    importDealEngineState: (raw: unknown) =>
+      setDealEngineState(migrateDealEngineState(raw)),
+    resetDealEngineState: () => setDealEngineState(createEmptyDealEngineState()),
     authState,
     authProvider,
     emailVerified,

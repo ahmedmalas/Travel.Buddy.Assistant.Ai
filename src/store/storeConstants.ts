@@ -5,8 +5,9 @@ export const LOCAL_STORAGE_KEY = 'travel-buddy:trip-state:v1';
 export const LOCAL_SNAPSHOT_STORAGE_KEY = 'travel-buddy:trip-snapshots:v1';
 export const HISTORY_LIMIT = 50;
 export const UNPINNED_SNAPSHOT_LIMIT = 10;
-export const BACKUP_VERSION = 5;
+export const BACKUP_VERSION = 6;
 export const MIN_SUPPORTED_BACKUP_VERSION = 2;
+export const DEAL_ENGINE_STORAGE_KEY = 'travel-buddy:deal-engine:v1';
 export const SNAPSHOT_HISTORY_VERSION = 1;
 export const APPLICATION_VERSION =
   typeof packageMetadata.version === 'string' ? packageMetadata.version : '0.0.0';
@@ -34,4 +35,5 @@ export const STORAGE_KEYS = {
   integrityHistory: INTEGRITY_HISTORY_STORAGE_KEY,
   integrityBaseline: INTEGRITY_HISTORY_BASELINE_STORAGE_KEY,
   integrityRepairBackups: INTEGRITY_REPAIR_BACKUP_STORAGE_KEY,
+  dealEngine: DEAL_ENGINE_STORAGE_KEY,
 } as const;

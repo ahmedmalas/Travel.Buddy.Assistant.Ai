@@ -46,6 +46,7 @@ export function TripWorkspace() {
     resetTrip,
     clearLocalData,
     importTrip,
+    importDealEngineState,
     toSnapshotHistoryJson,
     snapshotHistoryFileName,
     parseSnapshotHistoryBackup,
@@ -119,7 +120,12 @@ export function TripWorkspace() {
 
   const [searchQuery, setSearchQuery] = useState('');
   const [feedback, setFeedback] = useState<Feedback | null>(null);
-  const [pendingImport, setPendingImport] = useState<{ trip: TripData; preview: ImportPreview; fileName: string } | null>(null);
+  const [pendingImport, setPendingImport] = useState<{
+    trip: TripData;
+    preview: ImportPreview;
+    fileName: string;
+    dealEngine?: unknown;
+  } | null>(null);
   const [pendingSnapshotRestore, setPendingSnapshotRestore] = useState<BackupSnapshot | null>(null);
   const [snapshotSearchQuery, setSnapshotSearchQuery] = useState('');
   const [snapshotSort, setSnapshotSort] = useState<SnapshotSort>('newest');
@@ -354,6 +360,9 @@ export function TripWorkspace() {
       return;
     }
     importTrip(pendingImport.trip, pendingImport.preview.linkedRecordCount);
+    if (pendingImport.dealEngine != null) {
+      importDealEngineState(pendingImport.dealEngine);
+    }
     setPendingImport(null);
     setFeedback({ kind: 'success', message: 'Backup restored successfully.' });
   };

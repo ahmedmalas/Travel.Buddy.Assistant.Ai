@@ -131,7 +131,7 @@ describe('useTripStore vault slices 37-44', () => {
     expect(result.current.vault.trips.length).toBeGreaterThan(1);
 
     const tripBackup = result.current.toBackupJson();
-    expect(tripBackup).toContain('"backupVersion": 5');
+    expect(tripBackup).toContain('"backupVersion": 6');
     expect(localStorage.getItem(TRIP_KEY)).toBeTruthy();
   });
 });

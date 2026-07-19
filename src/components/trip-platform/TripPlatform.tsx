@@ -93,6 +93,15 @@ const AssistancePanel = lazy(() =>
 const OnboardingPanel = lazy(() =>
   import('./OnboardingPanel').then((module) => ({ default: module.OnboardingPanel })),
 );
+const DealEnginePanel = lazy(() =>
+  import('./DealEnginePanel').then((module) => ({ default: module.DealEnginePanel })),
+);
+const PartnerCentrePanel = lazy(() =>
+  import('./PartnerCentrePanel').then((module) => ({ default: module.PartnerCentrePanel })),
+);
+const GrowthEnginePanel = lazy(() =>
+  import('./GrowthEnginePanel').then((module) => ({ default: module.GrowthEnginePanel })),
+);
 
 const NAV_GROUPS = [
   {
@@ -115,6 +124,15 @@ const NAV_GROUPS = [
       { id: 'itinerary', label: 'Itinerary' },
       { id: 'calendar', label: 'Calendar' },
       { id: 'destinations', label: 'Destinations' },
+    ],
+  },
+  {
+    id: 'deals',
+    label: 'Deals',
+    tabs: [
+      { id: 'deal-engine', label: 'Super deal engine' },
+      { id: 'partners', label: 'Partner centre' },
+      { id: 'growth', label: 'Growth' },
     ],
   },
   {
@@ -212,6 +230,9 @@ function TripPlatformInner() {
     itinerary: DailyItineraryBoard,
     calendar: CalendarPlanner,
     destinations: DestinationsPanel,
+    'deal-engine': DealEnginePanel,
+    partners: PartnerCentrePanel,
+    growth: GrowthEnginePanel,
     flights: FlightsPanel,
     stays: StaysPanel,
     transport: GroundTransportPanel,
@@ -252,8 +273,8 @@ function TripPlatformInner() {
             <p className="text-sm font-semibold uppercase tracking-[0.32em] text-sky-300">Travel Buddy</p>
             <h2 className="mt-2 text-3xl font-bold text-white md:text-4xl">Trip platform</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Slices 9–72 frontend-complete: logistics, prep, emergency, journal, rule-based assistance, and polished
-              navigation — local/demo by default, optional cloud when verified.
+              Slices 9–88: trip platform plus provider-neutral Super Deal Engine and partner readiness — local/demo
+              adapters by default, no live booking APIs until approved.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

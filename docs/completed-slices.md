@@ -97,8 +97,11 @@ Implemented on branch `cursor/slices-53-60-supabase-cloud-03b5`.
 
 ## Slices 61–72 (Frontend Complete)
 
-Implemented on branch `cursor/slices-61-72-frontend-complete-03b5`.  
-Backup schema version raised to **5** (compatible with v2–v5 imports).
+Merged via PR #14 onto `main`.  
+Verified merge commit: `a5af2f7`  
+PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/14
+
+Backup schema version raised to **5** at merge (later raised to **6** with deal engine).
 
 | Slice | Capability |
 |------:|------------|
@@ -115,18 +118,43 @@ Backup schema version raised to **5** (compatible with v2–v5 imports).
 | 71 | Product onboarding (welcome/demo/privacy/local-vs-cloud/import, dismissible progress) |
 | 72 | Final frontend hardening (ErrorBoundary, regression tests, docs, a11y/keyboard/mobile QA) |
 
+## Slices 73–88 (Super Deal Engine & Partner Platform)
+
+Implemented on branch `cursor/slices-73-88-deal-engine-03b5`.  
+Backup schema version raised to **6** (compatible with v2–v6 imports). Deal-engine state is persisted separately and included in trip backups.
+
+| Slice | Capability |
+|------:|------------|
+| 73 | Provider-neutral adapter architecture + mock/demo adapters (all inventory categories) |
+| 74 | Universal offer model with fee-inclusive payable totals |
+| 75 | Flight super-search (return/one-way/multi-city flags, nearby/flexible, warnings) |
+| 76 | Accommodation super-search + split-stay detection |
+| 77 | Whole-trip deal builder across flight/stay/ground/protect/connect |
+| 78 | Explainable ranking engine with adjustable weights (“Why this deal?”) |
+| 79 | Comparison screen, shortlist, share, sequential booking handoff (no payments) |
+| 80 | Price history snapshots/trends + alerts (simulated until live access) |
+| 81 | Flexible discovery intents ranked by complete trip cost |
+| 82 | Traveller preference profiles with per-search overrides |
+| 83 | Deal verification / trust centre panel |
+| 84 | Affiliate attribution platform (clicks/callbacks/reports; no fake conversions) |
+| 85 | OTA partner centre + media kit from real/null platform metrics |
+| 86 | Provider onboarding framework (Booking/Expedia/Skyscanner/etc. status records) |
+| 87 | Growth/recommendation foundations (landings, referrals, savings reports) |
+| 88 | QA gates, load/ranking tests, docs (adapter/ranking/partnership/disclosure/checklist) |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
-- Domain model + migration in `src/store/tripDomain.ts` (backup version **5**)
+- Domain model + migration in `src/store/tripDomain.ts` (backup version **6**)
 - Travel ops domain in `src/store/travelOpsDomain.ts`; rule engine in `src/store/smartAssistance.ts`; onboarding in `src/store/onboarding.ts`
+- Deal engine in `src/deal-engine/` with store wiring for shortlist/prefs/alerts/attribution
 - Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
 - Extracted constants in `src/store/storeConstants.ts`; module index in `src/store/modules/`
 - Repository contracts in `src/store/repositories/` (local provider default; Supabase provider when env configured)
 - Auth/sync/notifications/command-centre/settings/documents modules under `src/store/`
 - Supabase client/env under `src/lib/supabase/`; SQL under `supabase/migrations/`
 - Deterministic calculations in `src/store/platformCalculations.ts`
-- UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels, grouped nav)
+- UI modules under `src/components/trip-platform/` (lazy-loaded heavy panels, grouped nav including **Deals**)
 - `ErrorBoundary` wraps the trip platform and lazy panels
 - Existing Slices 9–28 Backup & Integrity UI remains available in the **Backup & integrity** tab
 
@@ -143,8 +171,10 @@ npm run validate
 
 ## Explicitly out of scope
 
-- AI features / live provider inventory
-- External booking/flight/hotel APIs
+- Live provider inventory without credentials + approval
+- Scraping or bypassing provider access controls
+- Automatic booking / payment processing
+- Fabricated conversions, savings testimonials, or partnership claims
 - Applying remote Supabase migrations without a verified Travel Buddy project
 - Merging divergent older PRs (#1, #3, #6)
 - Deploy / auto-merge
