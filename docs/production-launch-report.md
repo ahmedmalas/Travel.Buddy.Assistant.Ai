@@ -1,48 +1,43 @@
 # Travel Buddy — Production launch report
 
 **Branch:** `cursor/production-launch-03b5`  
-**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17 (draft)
+**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17 (draft)  
+**Resume point:** `ef91805`
 
 ## Verdict
 
-**Not launch-ready — stopped on authentication blockers.**
+**Not launch-ready — stopped before migrations.**
 
-## Approved infrastructure (declared)
+Desktop MCP reauthentication did **not** propagate into this cloud-agent session. The project ref in the latest message was still the placeholder `[PASTE PROJECT REF HERE]`.
+
+## Approved targets (declared)
 
 | System | Target |
 |--------|--------|
 | Supabase organisation | `tasqkbrzxjralyelioyv` |
-| Supabase project name | `aleya travel assistant` |
-| Supabase project ref | **UNKNOWN — not visible to current MCP session** |
+| Supabase project | `aleya travel assistant` |
+| Supabase project ref | **not supplied / not visible** |
 | Vercel team | `ahmedmalas-projects` |
 | Vercel project | `travel-buddy-assistant-ai` |
 
-Retired / forbidden: `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator. No changes applied to those.
+Forbidden / unused: `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator.
 
-## Exact stop reason
+## Blockers observed in this cloud session (2026-07-19)
 
-1. **Supabase MCP** is authenticated only to org `axqrjaxwqjiqphdhzbcr` (“The Peptides Guy”).  
-   - `get_organization(tasqkbrzxjralyelioyv)` → permission denied  
-   - `list_organizations` does not include `tasqkbrzxjralyelioyv`  
-   - Project **aleya travel assistant** therefore cannot be located; **project ref cannot be reported**  
-   - Interactive `mcp_auth` for Supabase is **not available in this cloud-agent environment** (desktop IDE only)
+1. **Supabase MCP** still only lists org `axqrjaxwqjiqphdhzbcr`
+2. `get_organization(tasqkbrzxjralyelioyv)` → permission denied
+3. Project **aleya travel assistant** not in `list_projects` → cannot apply migrations safely
+4. **Vercel MCP** still `needsAuth`; interactive auth desktop-only; no `VERCEL_TOKEN`
+5. Message contained placeholder ref `[PASTE PROJECT REF HERE]` instead of a real ref
 
-2. **Vercel MCP** status `needsAuth`; interactive auth desktop-only; no `VERCEL_TOKEN` in environment → cannot link/deploy `travel-buddy-assistant-ai`
+## Required to resume (paste into next message)
 
-3. **Resend SMTP** still requires `RESEND_API_KEY` + verified sending domain + `SUPABASE_ACCESS_TOKEN` for Auth PATCH
+```text
+Supabase project ref: <exact-ref-from-dashboard>
+Vercel: authenticate MCP in desktop AND restart this cloud agent
+  OR provide VERCEL_TOKEN=...
+```
 
-## Required from operator (resume checklist)
+Optional later (stop point after deploy): `RESEND_API_KEY` + verified sending domain.
 
-1. In **Cursor desktop**, reauthenticate **Supabase MCP** and select organisation **`tasqkbrzxjralyelioyv`**
-2. Confirm project **`aleya travel assistant`** appears; paste its **exact project ref** into the agent thread (or restart the cloud agent after MCP reauth)
-3. Authenticate **Vercel MCP** in Cursor desktop (team `ahmedmalas-projects`) **or** provide `VERCEL_TOKEN`
-4. Provide `RESEND_API_KEY` + verified domain when ready for SMTP
-
-After that, the agent will: report ref → apply migrations/RLS/storage → configure Vercel env (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_APP_URL`) → deploy → set Auth site/redirect URLs → SMTP → acceptance.
-
-## App changes prepared on this branch
-
-- Env target no longer accepts/uses `farnjmgwcayvkzuaoifk`
-- Accepts `VITE_SUPABASE_PUBLISHABLE_KEY` (anon key still aliased)
-- Deploy/SMTP scripts retargeted to Vercel `travel-buddy-assistant-ai` / org `tasqkbrzxjralyelioyv`
-- Auth resend + delivery error mapping retained
+After a real project ref is available in this session, the agent will: apply migrations/RLS/storage → set Vercel env → deploy → configure Auth site/redirect URLs → stop at Resend SMTP.
