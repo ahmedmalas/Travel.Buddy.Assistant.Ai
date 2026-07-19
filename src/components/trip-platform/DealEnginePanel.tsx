@@ -11,6 +11,8 @@ import {
   evaluateAlert,
   generateDeepLink,
   generateSimulatedPriceHistory,
+  getInventoryModeBanner,
+  getInventoryModeClaims,
   markChecklistOpened,
   rankOffers,
   recordClick,
@@ -245,12 +247,16 @@ export function DealEnginePanel() {
     { id: 'trust', label: 'Trust centre' },
   ];
 
+  const inventoryBanner = getInventoryModeBanner();
+  const inventoryClaims = getInventoryModeClaims();
+
   return (
     <Panel
       title="Super Deal Engine"
       description="Provider-neutral demo search with fee-inclusive totals, explainable ranking, and partner handoff. Never claims global cheapest."
       actions={
         <>
+          <StatusBadge label="Demo inventory" tone="warning" />
           {dealEngineState.lastSearchMeta.searchedAt ? (
             <StatusBadge label={`Searched ${new Date(dealEngineState.lastSearchMeta.searchedAt).toLocaleString()}`} tone="info" />
           ) : null}
@@ -258,9 +264,15 @@ export function DealEnginePanel() {
         </>
       }
     >
+      <p className="mb-3 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-100" role="status">
+        {inventoryBanner}
+      </p>
       <p className="mb-4 text-xs text-slate-400" role="note">
         Affiliate disclosure: Travel Buddy may earn a commission from approved partners. Ranking does not use commission.
-        Prices shown are simulated until live providers are approved.
+        Claims disabled: live prices={String(inventoryClaims.livePrices)}, live availability=
+        {String(inventoryClaims.liveAvailability)}, OTA partnerships={String(inventoryClaims.otaPartnerships)},
+        guaranteed cheapest={String(inventoryClaims.guaranteedCheapest)}, real booking=
+        {String(inventoryClaims.realBooking)}.
       </p>
 
       <div className="mb-4 flex flex-wrap gap-2" role="tablist" aria-label="Deal engine sections">

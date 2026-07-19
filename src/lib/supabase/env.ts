@@ -8,11 +8,6 @@ export type SupabaseEnvValidation =
   | { ok: true; config: SupabaseEnvConfig; mode: 'cloud-ready' }
   | { ok: false; mode: 'local-demo'; reason: string; missing: string[] };
 
-const readEnv = (key: string): string => {
-  const value = (import.meta.env as Record<string, string | undefined>)[key];
-  return typeof value === 'string' ? value.trim() : '';
-};
-
 export const validateSupabaseEnv = (
   env: Record<string, string | undefined> = import.meta.env as Record<string, string | undefined>,
 ): SupabaseEnvValidation => {
@@ -50,6 +45,24 @@ export const validateSupabaseEnv = (
     };
   }
 
+  if (projectRef && projectRef !== TRAVEL_BUDDY_SUPABASE_PROJECT.ref) {
+    return {
+      ok: false,
+      mode: 'local-demo',
+      reason: `VITE_SUPABASE_PROJECT_REF must be ${TRAVEL_BUDDY_SUPABASE_PROJECT.ref} (Travel Buddy production).`,
+      missing: ['VITE_SUPABASE_PROJECT_REF'],
+    };
+  }
+
+  if (url.includes('.supabase.co') && !url.includes(TRAVEL_BUDDY_SUPABASE_PROJECT.ref)) {
+    return {
+      ok: false,
+      mode: 'local-demo',
+      reason: 'VITE_SUPABASE_URL must point at the verified Travel Buddy project.',
+      missing: ['VITE_SUPABASE_URL'],
+    };
+  }
+
   return {
     ok: true,
     mode: 'cloud-ready',
@@ -57,23 +70,53 @@ export const validateSupabaseEnv = (
   };
 };
 
+/** Dedicated Travel Buddy production project — verified 2026-07-19. */
+export const TRAVEL_BUDDY_SUPABASE_PROJECT = {
+  organization: 'The Peptides Guy',
+  organizationId: 'axqrjaxwqjiqphdhzbcr',
+  name: 'travel-buddy-production',
+  ref: 'farnjmgwcayvkzuaoifk',
+  region: 'ap-southeast-2',
+  url: 'https://farnjmgwcayvkzuaoifk.supabase.co',
+} as const;
+
 /**
- * Accessible Supabase projects observed via MCP during Slice 53 verification.
- * None match Travel Buddy — remote migrations must not be applied to these.
+ * Forbidden projects — never apply Travel Buddy migrations or use these refs.
  */
-export const ACCESSIBLE_SUPABASE_PROJECTS = [
+export const FORBIDDEN_SUPABASE_PROJECTS = [
   { id: 'iwmloenntlzyzvguwfsn', name: 'aboss-production' },
   { id: 'bmfpclozzmeekazmoaxw', name: 'ai-invoicing-app-production' },
   { id: 'wrmwthsfbpkjsxsqigpw', name: 'aleya-logo-creator' },
 ] as const;
 
+/** @deprecated Use FORBIDDEN_SUPABASE_PROJECTS + TRAVEL_BUDDY_SUPABASE_PROJECT */
+export const ACCESSIBLE_SUPABASE_PROJECTS = [
+  ...FORBIDDEN_SUPABASE_PROJECTS,
+  { id: TRAVEL_BUDDY_SUPABASE_PROJECT.ref, name: TRAVEL_BUDDY_SUPABASE_PROJECT.name },
+] as const;
+
 export const SUPABASE_TARGET_VERIFICATION = {
-  verified: false as const,
-  organization: 'The Peptides Guy (axqrjaxwqjiqphdhzbcr)',
+  verified: true as const,
+  organization: `${TRAVEL_BUDDY_SUPABASE_PROJECT.organization} (${TRAVEL_BUDDY_SUPABASE_PROJECT.organizationId})`,
+  projectName: TRAVEL_BUDDY_SUPABASE_PROJECT.name,
+  projectRef: TRAVEL_BUDDY_SUPABASE_PROJECT.ref,
   reason:
-    'No approved Travel Buddy Supabase project was found among accessible projects. Remote migrations, live Auth, Storage, and RLS were not applied to any remote database.',
+    'Dedicated Travel Buddy Supabase project travel-buddy-production (farnjmgwcayvkzuaoifk) verified. Foundation, storage, security hardening, and launch grant migrations applied. Forbidden sibling projects were not modified.',
   accessibleProjects: ACCESSIBLE_SUPABASE_PROJECTS.map((project) => project.name),
+  forbiddenProjects: FORBIDDEN_SUPABASE_PROJECTS.map((project) => project.name),
   localMigrationsPath: 'supabase/migrations/',
   fallbackMode: 'local-demo',
-  remoteMigrationsApplied: false as const,
+  remoteMigrationsApplied: true as const,
+  migrationsApplied: [
+    'travel_buddy_foundation',
+    'travel_buddy_storage',
+    'travel_buddy_security_hardening',
+    'travel_buddy_launch_grants',
+  ] as const,
+  isolationProof: {
+    passed: true as const,
+    checks: 9,
+    summary:
+      'Owner can select/update own trip+documents; stranger cannot select/update/insert; viewer collaborator can select but cannot update.',
+  },
 } as const;

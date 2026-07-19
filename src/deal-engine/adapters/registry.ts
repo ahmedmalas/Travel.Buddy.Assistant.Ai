@@ -4,7 +4,10 @@ import type { InventoryCategory } from '../types';
 
 const liveAdapters: TravelProviderAdapter[] = [];
 
-/** Live adapters must only be registered after credentials + explicit approval. */
+/**
+ * Live adapters must only be registered after credentials + explicit approval.
+ * Production ships with an empty live registry (demo/mock only).
+ */
 export function registerLiveAdapter(adapter: TravelProviderAdapter): void {
   if (!adapter.isLive) {
     throw new Error('registerLiveAdapter requires adapter.isLive === true');
@@ -17,6 +20,11 @@ export function registerLiveAdapter(adapter: TravelProviderAdapter): void {
 
 export function clearLiveAdapters(): void {
   liveAdapters.length = 0;
+}
+
+/** Always empty at boot until approved credentials call registerLiveAdapter. */
+export function listLiveAdapters(): TravelProviderAdapter[] {
+  return [...liveAdapters];
 }
 
 export function listAdapters(options?: { includeLive?: boolean }): TravelProviderAdapter[] {

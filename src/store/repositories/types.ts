@@ -73,11 +73,11 @@ export type CloudAdapterPlan = {
 
 export const SUPABASE_ADAPTER_PLAN: CloudAdapterPlan = {
   provider: 'supabase',
-  status: 'target-unverified',
+  status: 'env-ready',
   notes:
-    'LocalStorageDataProvider remains the default. SupabaseDataProvider implements the same DataRepositories contracts and activates when VITE_SUPABASE_* env is set. Remote migrations are blocked until a Travel Buddy project target is verified.',
+    'Travel Buddy Supabase project travel-buddy-production (farnjmgwcayvkzuaoifk) is verified and migrations are applied. LocalStorageDataProvider remains the runtime default until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are configured; then SupabaseDataProvider activates for the same repository contracts.',
   interfaces: ['trips', 'bookings', 'expenses', 'travellers', 'documents', 'templates', 'collaboration'],
-  remoteMigrationsApplied: false,
+  remoteMigrationsApplied: true,
 };
 
 export type ActiveTripSnapshot = TripData;

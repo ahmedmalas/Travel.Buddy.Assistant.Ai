@@ -48,7 +48,7 @@ export function AuthShellPanel() {
         kind={supabaseTargetVerification.verified ? 'info' : 'error'}
         message={
           supabaseTargetVerification.verified
-            ? 'Supabase target verified.'
+            ? `Supabase target verified: ${supabaseTargetVerification.projectName} (${supabaseTargetVerification.projectRef}).`
             : `Target unverified — ${supabaseTargetVerification.reason}`
         }
       />

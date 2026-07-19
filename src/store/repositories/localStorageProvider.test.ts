@@ -61,9 +61,9 @@ describe('localStorageProvider repositories', () => {
     expect((await repos.documents.listByTrip(trip.id)).some((entry) => entry.title === 'Visa meta')).toBe(true);
   });
 
-  it('documents the supabase adapter plan without connecting', () => {
-    expect(SUPABASE_ADAPTER_PLAN.status).toBe('target-unverified');
-    expect(SUPABASE_ADAPTER_PLAN.remoteMigrationsApplied).toBe(false);
+  it('documents the supabase adapter plan as env-ready after target verification', () => {
+    expect(SUPABASE_ADAPTER_PLAN.status).toBe('env-ready');
+    expect(SUPABASE_ADAPTER_PLAN.remoteMigrationsApplied).toBe(true);
     expect(SUPABASE_ADAPTER_PLAN.interfaces).toContain('trips');
   });
 });

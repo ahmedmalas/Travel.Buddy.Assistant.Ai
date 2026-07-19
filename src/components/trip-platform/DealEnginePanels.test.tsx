@@ -11,6 +11,7 @@ describe('Deal engine platform surfaces', () => {
     await user.click(screen.getByRole('tab', { name: /^Deals$/i }));
     await user.click(screen.getByRole('tab', { name: /Super deal engine/i }));
     expect(await screen.findByRole('heading', { name: /Super Deal Engine/i })).toBeInTheDocument();
+    expect(screen.getByText(/LIVE PROVIDERS DISABLED/i)).toBeInTheDocument();
     expect(screen.getByText(/Affiliate disclosure/i)).toBeInTheDocument();
 
     await user.click(screen.getByRole('tab', { name: /Partner centre/i }));
