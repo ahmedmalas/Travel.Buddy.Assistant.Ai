@@ -65,3 +65,15 @@ Re-authenticate Supabase MCP in Cursor Desktop to an account that can see:
 - Project `jtktojbvbmiewpntpvhe` (aleya travel assistant)
 
 Confirm with `list_organizations` before any `apply_migration` / `execute_sql`. Then re-run gates 2–8.
+
+## 5. Retry (same run, ~07:12 UTC)
+
+Re-checked after user “try again”:
+
+- `list_organizations` → still only `axqrjaxwqjiqphdhzbcr` (The Peptides Guy)
+- `get_organization(tasqkbrzxjralyelioyv)` → `-32600`
+- `get_project(jtktojbvbmiewpntpvhe)` → `-32600`
+- `list_migrations(jtktojbvbmiewpntpvhe)` → `-32600`
+- Supabase MCP `serverStatus` → `ready` (authenticated, wrong account)
+
+Still blocked. No SQL applied. No other projects touched.
