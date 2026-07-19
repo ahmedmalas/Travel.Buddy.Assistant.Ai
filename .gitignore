@@ -23,3 +23,7 @@ pnpm-debug.log*
 
 # Supabase CLI link cache
 supabase/.temp/
+
+# Accidental TS emit next to sources
+playwright.config.js
+e2e/*.js
