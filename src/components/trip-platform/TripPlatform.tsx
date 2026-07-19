@@ -90,6 +90,9 @@ const JournalPanel = lazy(() =>
 const AssistancePanel = lazy(() =>
   import('./AssistancePanel').then((module) => ({ default: module.AssistancePanel })),
 );
+const TripBriefPanel = lazy(() =>
+  import('./TripBriefPanel').then((module) => ({ default: module.TripBriefPanel })),
+);
 const OnboardingPanel = lazy(() =>
   import('./OnboardingPanel').then((module) => ({ default: module.OnboardingPanel })),
 );
@@ -122,6 +125,7 @@ const NAV_GROUPS = [
     tabs: [
       { id: 'command', label: 'Command centre' },
       { id: 'onboarding', label: 'Onboarding' },
+      { id: 'trip-brief', label: 'Trip brief' },
       { id: 'assistance', label: 'Assistance' },
       { id: 'notifications', label: 'Notifications' },
     ],
@@ -216,8 +220,16 @@ function TripPlatformInner() {
   const [activeTab, setActiveTab] = useState<TabId>('command');
   const [activeGroup, setActiveGroup] = useState<(typeof NAV_GROUPS)[number]['id']>('home');
   const [focusTabId, setFocusTabId] = useState<TabId | null>(null);
-  const { onboardingState, smartAssistance, unreadNotifications, finalisationState, trackAnalyticsEvent } =
-    useSharedTripStore();
+  const {
+    onboardingState,
+    smartAssistance,
+    unreadNotifications,
+    finalisationState,
+    trackAnalyticsEvent,
+    cloudRuntime,
+    authState,
+    cloudPersistMessage,
+  } = useSharedTripStore();
 
   useEffect(() => {
     if (!focusTabId) return;
@@ -241,6 +253,7 @@ function TripPlatformInner() {
   const panels: Record<TabId, ComponentType<{ onNavigate?: (tab: string) => void }> | ComponentType> = {
     command: CommandCentreDashboard,
     onboarding: OnboardingPanel,
+    'trip-brief': TripBriefPanel,
     assistance: AssistancePanel,
     vault: TripVaultPanel,
     setup: TripSetupForm,
@@ -295,14 +308,24 @@ function TripPlatformInner() {
             <p className="text-sm font-semibold uppercase tracking-[0.32em] text-sky-300">Travel Buddy</p>
             <h2 className="mt-2 text-3xl font-bold text-white md:text-4xl">Trip platform</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Slices 9–100 launch-ready framework: trip platform, deal engine, import/health/offline tooling — local/demo
-              by default, no live commercial providers or payments.
+              Aleya Travel Assistant — trip brief planning, vault, documents, and sync against live Supabase when
+              configured. Deal inventory remains demo-only until commercial connectors are enabled.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusBadge
               label={finalisationState.offline.network === 'offline' ? 'Offline' : 'Online'}
               tone={finalisationState.offline.network === 'offline' ? 'warning' : 'success'}
+            />
+            <StatusBadge
+              label={
+                cloudRuntime.clientConfigured
+                  ? authState.mode === 'signed-in'
+                    ? 'Cloud signed in'
+                    : 'Cloud ready'
+                  : 'Local cache'
+              }
+              tone={cloudRuntime.clientConfigured ? (authState.mode === 'signed-in' ? 'success' : 'info') : 'warning'}
             />
             {!onboardingState.dismissed ? <StatusBadge label="Onboarding" tone="info" /> : null}
             {smartAssistance.length > 0 ? (
@@ -313,6 +336,11 @@ function TripPlatformInner() {
             ) : null}
           </div>
         </div>
+        {cloudPersistMessage ? (
+          <p className="mt-3 rounded-xl border border-sky-300/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100" role="status">
+            {cloudPersistMessage}
+          </p>
+        ) : null}
         {finalisationState.offline.network === 'offline' ? (
           <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100" role="status">
             {finalisationState.offline.message}
