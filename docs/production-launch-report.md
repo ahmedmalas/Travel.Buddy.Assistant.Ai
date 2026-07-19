@@ -1,43 +1,43 @@
 # Travel Buddy — Production launch report
 
 **Branch:** `cursor/production-launch-03b5`  
-**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17 (draft)  
-**Resume point:** `ef91805`
+**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17 (draft)
 
-## Verdict
+## Root cause (demo-local in production)
 
-**Not launch-ready — stopped before migrations.**
+Production (`main` @ `5175d14`) reads only `VITE_SUPABASE_ANON_KEY`.
+Vercel has `VITE_SUPABASE_PUBLISHABLE_KEY` (and URL + APP_URL) baked into the bundle, but **not** `VITE_SUPABASE_ANON_KEY`.
+Env validation therefore fails → no Supabase client → auth shell stays `demo-local`.
 
-Desktop MCP reauthentication did **not** propagate into this cloud-agent session. The project ref in the latest message was still the placeholder `[PASTE PROJECT REF HERE]`.
+Secondary gates on this branch (now fixed):
 
-## Approved targets (declared)
+1. `SUPABASE_TARGET_VERIFICATION.verified` was `false` → `activeProvider` stayed `local-storage`
+2. `hydrateAuthFromSession` preserved `demo-local` when cloud had no session
+
+## Approved targets
 
 | System | Target |
 |--------|--------|
 | Supabase organisation | `tasqkbrzxjralyelioyv` |
 | Supabase project | `aleya travel assistant` |
-| Supabase project ref | **not supplied / not visible** |
+| Supabase project ref | `jtktojbvbmiewpntpvhe` |
+| Supabase URL | `https://jtktojbvbmiewpntpvhe.supabase.co` |
 | Vercel team | `ahmedmalas-projects` |
 | Vercel project | `travel-buddy-assistant-ai` |
+| Production URL | `https://travel-buddy-assistant-ai.vercel.app` |
 
-Forbidden / unused: `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator.
+Forbidden: `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator.
 
-## Blockers observed in this cloud session (2026-07-19)
+## Fix shipped on this branch
 
-1. **Supabase MCP** still only lists org `axqrjaxwqjiqphdhzbcr`
-2. `get_organization(tasqkbrzxjralyelioyv)` → permission denied
-3. Project **aleya travel assistant** not in `list_projects` → cannot apply migrations safely
-4. **Vercel MCP** still `needsAuth`; interactive auth desktop-only; no `VERCEL_TOKEN`
-5. Message contained placeholder ref `[PASTE PROJECT REF HERE]` instead of a real ref
+- Accept `VITE_SUPABASE_PUBLISHABLE_KEY` (alias `VITE_SUPABASE_ANON_KEY`)
+- Lock verified target to `jtktojbvbmiewpntpvhe`
+- Leave `demo-local` when Supabase client is configured
+- Adapter plan `connected`
+- Migration script `scripts/apply-aleya-migrations.sh`
 
-## Required to resume (paste into next message)
+## Remaining operators
 
-```text
-Supabase project ref: <exact-ref-from-dashboard>
-Vercel: authenticate MCP in desktop AND restart this cloud agent
-  OR provide VERCEL_TOKEN=...
-```
-
-Optional later (stop point after deploy): `RESEND_API_KEY` + verified sending domain.
-
-After a real project ref is available in this session, the agent will: apply migrations/RLS/storage → set Vercel env → deploy → configure Auth site/redirect URLs → stop at Resend SMTP.
+1. Apply migrations on `jtktojbvbmiewpntpvhe` (Supabase MCP must include org `tasqkbrzxjralyelioyv`, or run `apply-aleya-migrations.sh` with a PAT)
+2. Set `VITE_SUPABASE_ANON_KEY` = publishable key on Vercel (back-compat) **and** deploy this branch to Production
+3. Optional: Resend SMTP

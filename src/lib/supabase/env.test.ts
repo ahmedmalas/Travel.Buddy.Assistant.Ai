@@ -17,17 +17,33 @@ describe('validateSupabaseEnv', () => {
     }
   });
 
-  it('accepts publishable key alias and a non-forbidden supabase URL while target is pending', () => {
+  it('accepts publishable key for the verified aleya project', () => {
     const result = validateSupabaseEnv({
-      VITE_SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
+      VITE_SUPABASE_URL: 'https://jtktojbvbmiewpntpvhe.supabase.co',
       VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_key_123',
-      VITE_SUPABASE_PROJECT_REF: 'abcdefghijklmnop',
+      VITE_SUPABASE_PROJECT_REF: 'jtktojbvbmiewpntpvhe',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.mode).toBe('cloud-ready');
-      expect(result.config.projectRef).toBe('abcdefghijklmnop');
+      expect(result.config.projectRef).toBe('jtktojbvbmiewpntpvhe');
     }
+  });
+
+  it('accepts legacy VITE_SUPABASE_ANON_KEY alias for the verified project', () => {
+    const result = validateSupabaseEnv({
+      VITE_SUPABASE_URL: 'https://jtktojbvbmiewpntpvhe.supabase.co',
+      VITE_SUPABASE_ANON_KEY: 'sb_publishable_test_key_123',
+    });
+    expect(result.ok).toBe(true);
+  });
+
+  it('rejects a non-verified supabase project URL when target is locked', () => {
+    const result = validateSupabaseEnv({
+      VITE_SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_key_123',
+    });
+    expect(result.ok).toBe(false);
   });
 
   it('rejects the retired travel-buddy-production project ref', () => {
@@ -38,10 +54,9 @@ describe('validateSupabaseEnv', () => {
     expect(result.ok).toBe(false);
   });
 
-  it('records approved org and pending project verification', () => {
-    expect(SUPABASE_TARGET_VERIFICATION.verified).toBe(false);
-    expect(SUPABASE_TARGET_VERIFICATION.remoteMigrationsApplied).toBe(false);
-    expect(SUPABASE_TARGET_VERIFICATION.projectRef).toBeNull();
+  it('records verified aleya travel assistant production target', () => {
+    expect(SUPABASE_TARGET_VERIFICATION.verified).toBe(true);
+    expect(SUPABASE_TARGET_VERIFICATION.projectRef).toBe('jtktojbvbmiewpntpvhe');
     expect(TRAVEL_BUDDY_SUPABASE_ORG.id).toBe('tasqkbrzxjralyelioyv');
     expect(TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName).toBe('aleya travel assistant');
     expect(FORBIDDEN_SUPABASE_PROJECTS.map((p) => p.id)).toContain('farnjmgwcayvkzuaoifk');

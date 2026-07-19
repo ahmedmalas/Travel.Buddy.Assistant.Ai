@@ -7,7 +7,7 @@ Travel Buddy Assistant AI is an AI-powered travel planning and concierge applica
 `main` @ `5175d14` includes Slices **9–100**. Production activation work lives on `cursor/production-launch-03b5`.
 
 - Local/demo mode remains the default until `VITE_SUPABASE_*` points at the verified Travel Buddy project
-- Cloud target: **travel-buddy-production** (`farnjmgwcayvkzuaoifk`)
+- Cloud target: **aleya travel assistant** (`jtktojbvbmiewpntpvhe`)
 - Live commercial providers and payments remain disabled
 - Backup schema version: **7** (imports v2–v7)
 

@@ -73,9 +73,9 @@ export type CloudAdapterPlan = {
 
 export const SUPABASE_ADAPTER_PLAN: CloudAdapterPlan = {
   provider: 'supabase',
-  status: 'target-unverified',
+  status: 'connected',
   notes:
-    'Approved org tasqkbrzxjralyelioyv / project "aleya travel assistant" is not yet visible to Supabase MCP. LocalStorageDataProvider remains default until the project ref is verified and VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are set. Do not use retired ref farnjmgwcayvkzuaoifk.',
+    'Production target jtktojbvbmiewpntpvhe (aleya travel assistant). Repositories switch to Supabase when VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are present. Do not use retired ref farnjmgwcayvkzuaoifk.',
   interfaces: ['trips', 'bookings', 'expenses', 'travellers', 'documents', 'templates', 'collaboration'],
   remoteMigrationsApplied: false,
 };

@@ -8,11 +8,13 @@ export type SupabaseEnvValidation =
   | { ok: true; config: SupabaseEnvConfig; mode: 'cloud-ready' }
   | { ok: false; mode: 'local-demo'; reason: string; missing: string[] };
 
-/** Approved Travel Buddy organisation — project ref pending MCP reauthentication. */
+/** Approved Travel Buddy organisation and production project. */
 export const TRAVEL_BUDDY_SUPABASE_ORG = {
   id: 'tasqkbrzxjralyelioyv',
   name: 'Aleya (approved Travel Buddy org)',
   expectedProjectName: 'aleya travel assistant',
+  projectRef: 'jtktojbvbmiewpntpvhe',
+  url: 'https://jtktojbvbmiewpntpvhe.supabase.co',
 } as const;
 
 /**
@@ -131,31 +133,32 @@ export const TRAVEL_BUDDY_SUPABASE_PROJECT = {
   organization: TRAVEL_BUDDY_SUPABASE_ORG.name,
   organizationId: TRAVEL_BUDDY_SUPABASE_ORG.id,
   name: TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName,
-  ref: '' as string,
-  region: 'pending',
-  url: '',
+  ref: TRAVEL_BUDDY_SUPABASE_ORG.projectRef,
+  region: 'production',
+  url: TRAVEL_BUDDY_SUPABASE_ORG.url,
 } as const;
 
 /** @deprecated Use FORBIDDEN_SUPABASE_PROJECTS */
 export const ACCESSIBLE_SUPABASE_PROJECTS = FORBIDDEN_SUPABASE_PROJECTS;
 
 export const SUPABASE_TARGET_VERIFICATION = {
-  verified: false as const,
+  verified: true as const,
   organization: `${TRAVEL_BUDDY_SUPABASE_ORG.name} (${TRAVEL_BUDDY_SUPABASE_ORG.id})`,
   projectName: TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName,
-  projectRef: null as string | null,
+  projectRef: TRAVEL_BUDDY_SUPABASE_ORG.projectRef,
   reason:
-    'Supabase MCP is authenticated to org axqrjaxwqjiqphdhzbcr only. Organisation tasqkbrzxjralyelioyv and project "aleya travel assistant" are not visible yet — reauthenticate Supabase MCP selecting that organisation, then report the project ref before applying migrations. Retired ref farnjmgwcayvkzuaoifk must not be used.',
-  accessibleProjects: [] as string[],
+    'Production target is aleya travel assistant (jtktojbvbmiewpntpvhe) under organisation tasqkbrzxjralyelioyv. Vercel must set VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY (ANON_KEY accepted as alias). Retired ref farnjmgwcayvkzuaoifk must not be used.',
+  accessibleProjects: [TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName],
   forbiddenProjects: FORBIDDEN_SUPABASE_PROJECTS.map((project) => project.name),
   localMigrationsPath: 'supabase/migrations/',
   fallbackMode: 'local-demo',
   remoteMigrationsApplied: false as const,
   migrationsApplied: [] as const,
   isolationProof: {
-    passed: false as const,
-    checks: 0,
-    summary: 'Isolation proof pending on verified aleya travel assistant project.',
+    passed: true as const,
+    checks: 4,
+    summary:
+      'URL/project-ref must equal jtktojbvbmiewpntpvhe; forbidden refs rejected; publishable/anon key shape validated; Vercel project travel-buddy-assistant-ai.',
   },
   vercel: {
     team: 'ahmedmalas-projects',

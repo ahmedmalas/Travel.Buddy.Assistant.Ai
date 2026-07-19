@@ -61,8 +61,8 @@ describe('localStorageProvider repositories', () => {
     expect((await repos.documents.listByTrip(trip.id)).some((entry) => entry.title === 'Visa meta')).toBe(true);
   });
 
-  it('documents the supabase adapter plan as target-unverified until aleya project is visible', () => {
-    expect(SUPABASE_ADAPTER_PLAN.status).toBe('target-unverified');
+  it('documents the supabase adapter plan as connected to aleya travel assistant', () => {
+    expect(SUPABASE_ADAPTER_PLAN.status).toBe('connected');
     expect(SUPABASE_ADAPTER_PLAN.remoteMigrationsApplied).toBe(false);
     expect(SUPABASE_ADAPTER_PLAN.interfaces).toContain('trips');
   });
