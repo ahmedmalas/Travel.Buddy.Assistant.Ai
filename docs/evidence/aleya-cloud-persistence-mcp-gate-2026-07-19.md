@@ -1,64 +1,110 @@
-# Aleya cloud persistence — MCP gate evidence (sanitized)
+# Aleya cloud persistence — CLI apply evidence (sanitized)
 
-**Run:** `bc-b8f78f60-e9a1-4214-9de0-336f452f7fcc`  
-**Branch:** `cursor/aleya-cloud-persistence-03b5` @ `d44f08a` (migrations unchanged; evidence tip ahead of prior gate notes)  
+**Run:** `bc-2c47c236-68ea-4bd5-aabb-038241824e4a`  
+**Branch:** `cursor/aleya-cloud-persistence-03b5`  
 **UTC:** 2026-07-19  
-**Source:** Cursor Desktop → cloud agent (`source: desktop`)  
-**Target org name:** ALEYA TRAVEL ASSISTANT  
+**Method:** Supabase CLI + Management API (session `SUPABASE_ACCESS_TOKEN`); **Supabase MCP not used**  
+**Target org:** `tasqkbrzxjralyelioyv`  
 **Target project (only):** `jtktojbvbmiewpntpvhe`  
 
-No secrets, tokens, or publishable keys are included below.  
-`list_organizations` was **not** called (per this run’s instructions).  
-`SUPABASE_ACCESS_TOKEN` was **not** requested.  
-No other Supabase project was queried for schema/SQL after identity mismatch.
+No access tokens, service-role keys, publishable keys, JWTs, passwords, or user emails are included below.  
+No other Supabase project received migrations or schema changes.
 
-## 1. Read-only checks against `jtktojbvbmiewpntpvhe`
+## 1. Apply path
+
+| Step | Result |
+|------|--------|
+| `npx supabase link --project-ref jtktojbvbmiewpntpvhe` | Linked (`linked: true` for target only) |
+| `npx supabase db push` (foundation + storage) | Applied |
+| `npx supabase db push` (hardening + grants) | Applied |
+| `npx supabase db push` (trips RETURNING select fix) | Applied |
+
+### Remote `supabase_migrations.schema_migrations`
+
+| version | name |
+|---------|------|
+| `20260718120000` | `travel_buddy_foundation` |
+| `20260718120100` | `travel_buddy_storage` |
+| `20260719120000` | `travel_buddy_security_hardening` |
+| `20260719120100` | `travel_buddy_launch_grants` |
+| `20260719120200` | `travel_buddy_trips_returning_select` |
+
+## 2. Schema / storage / RLS / grants
+
+**Public tables present:** `document_objects`, `profiles`, `sync_revisions`, `trip_activity`, `trip_collaborators`, `trip_templates`, `trips`
+
+**Storage bucket `travel-documents`:** `public=false`, `file_size_limit=10485760`  
+**Storage policies:** `travel_documents_select|insert|update|delete`
+
+**RLS enabled:** all seven public tables above (`relrowsecurity=true`)
+
+**Function EXECUTE grants (authenticated + service_role only):**  
+`is_trip_member`, `can_edit_trip`, `trip_role`, `storage_trip_id`  
+(no `anon` / `public` grantees on those helpers)
+
+## 3. PostgREST non-404
+
+Anonymous/publishable probes against `/rest/v1/{table}`:
+
+| table | HTTP (not 404) |
+|-------|----------------|
+| `profiles` | 200 |
+| `trips` | 401 (relation exposed; RLS/JWT required) |
+| `trip_templates` | 200 |
+| `trip_collaborators` | 401 |
+| `trip_activity` | 401 |
+| `sync_revisions` | 401 |
+| `document_objects` | 401 |
+
+Authenticated Account A: `profiles` 200, `trips` 200.
+
+## 4. Advisors (`npx supabase db advisors --linked`)
+
+| Type | Count | Levels |
+|------|-------|--------|
+| security | 6 | WARN only (0 ERROR) |
+| performance | 4 | WARN only (0 ERROR) |
+
+Security WARN names: `anon_security_definer_function_executable` (`handle_new_user`), `authenticated_security_definer_function_executable` (helpers + `handle_new_user`), `auth_leaked_password_protection`  
+Performance WARN name: `auth_rls_initplan` (remaining policies on `trip_templates` select/update/delete and `trips_delete_owner`)
+
+## 5. Account A persistence + Account B isolation
+
+Ephemeral admin-created users (deleted after test). App-shaped PostgREST path (`Prefer: return=representation`).
 
 | Check | Result |
 |-------|--------|
-| Supabase MCP `serverStatus` | `ready` |
-| Tools present: `execute_sql` | **Available** in MCP schema |
-| Tools present: `apply_migration` | **Available** in MCP schema |
-| `get_project(jtktojbvbmiewpntpvhe)` | Permission error `-32600` |
-| `execute_sql` → list schemas | Permission error `-32600` |
-| `list_tables(public)` on target | Permission error `-32600` |
-| `get_project_url(jtktojbvbmiewpntpvhe)` | Permission error `-32600` |
+| A create trip + RETURNING | 201 |
+| A reload by id | PASS |
+| A edit + reload | PASS |
+| B list does not include A trip | PASS |
+| B direct fetch by id empty | PASS |
+| B PATCH cannot mutate A trip | PASS |
+| A name intact after B attempt | PASS |
+| Cleanup users/trip | done |
 
-### Project ref actually used / resolved by the tool
+## 6. RETURNING fix note
 
-`list_projects` (used only to identify which identity the MCP session holds) returned **only** these refs — **none** is the target:
+Initial Account A create with `return=representation` failed under `trips_select_member` because `is_trip_member()` re-queries `trips` and cannot see the in-flight insert.  
+Migration `20260719120200_travel_buddy_trips_returning_select.sql` adds `(select auth.uid()) = owner_id OR is_trip_member(id)` so supabase-js `.insert/.upsert().select()` works.
 
-| name | ref | organization_id |
-|------|-----|-----------------|
-| aboss-production | `iwmloenntlzyzvguwfsn` | `axqrjaxwqjiqphdhzbcr` |
-| travel-buddy-production | `farnjmgwcayvkzuaoifk` | `axqrjaxwqjiqphdhzbcr` |
-| ai-invoicing-app-production | `bmfpclozzmeekazmoaxw` | `axqrjaxwqjiqphdhzbcr` |
-| aleya-logo-creator | `wrmwthsfbpkjsxsqigpw` | `axqrjaxwqjiqphdhzbcr` |
+## 7. Repository gate
 
-**Target `jtktojbvbmiewpntpvhe`:** not in `list_projects`; direct calls → `-32600`.
+| Check | Result |
+|-------|--------|
+| `npm run validate` | PASS — 42 files / 156 tests; build OK |
+| `npm audit --omit=dev` | PASS — 0 vulnerabilities |
 
-**Hard stop:** Per policy, because the session does not resolve to `jtktojbvbmiewpntpvhe`, no migrations, advisors, or Account A/B tests were run. Visible non-target projects were **not** used.
-
-## 2. Gates
+## 8. Gates
 
 | # | Gate | Status |
 |---|------|--------|
-| 1 | MCP project confirmation (`jtktojbvbmiewpntpvhe`) | **FAIL** (session resolves to other refs under `axqrjaxwqjiqphdhzbcr`) |
-| 2 | Apply four migrations | **BLOCKED** |
-| 3 | Tables + private `travel-documents` bucket | **BLOCKED** |
-| 4 | RLS, grants, Data API | **BLOCKED** |
-| 5 | Security + performance advisors | **BLOCKED** |
-| 6 | `profiles` / `trips` non-404 | **BLOCKED** |
-| 7 | Account A persistence | **BLOCKED** |
-| 8 | Account B isolation | **BLOCKED** |
-| 9 | Repository validate / tests / build / audit | PASS (prior tip on this branch; not re-run this turn) |
-
-## 3. Prior notes on this branch (superseded for MCP identity)
-
-Earlier Desktop runs (`bc-a4c38c54-…`, `bc-55988788-…`) recorded the same wrong-identity failure. This run intentionally does **not** continue those agents; it re-checked MCP from a fresh run and stopped on mismatch.
-
-## 4. Unblock
-
-In **Cursor Desktop → Settings → MCP → Supabase**, disconnect and reconnect OAuth with the Supabase login that owns organisation **ALEYA TRAVEL ASSISTANT** and project **`jtktojbvbmiewpntpvhe`**.
-
-After reconnect, a fresh agent must see `jtktojbvbmiewpntpvhe` via project tools (not only via another org’s project list) before any `apply_migration` / `execute_sql`. Keep PR draft until every gate passes.
+| 1 | Target project confirmation (`jtktojbvbmiewpntpvhe`) via CLI link | **PASS** |
+| 2 | Apply migrations (5 remote versions) | **PASS** |
+| 3 | Tables + private `travel-documents` bucket | **PASS** |
+| 4 | RLS, grants, Data API | **PASS** |
+| 5 | Security + performance advisors (executed; WARN-only) | **PASS** |
+| 6 | `profiles` / `trips` non-404 | **PASS** |
+| 7 | Account A persistence | **PASS** |
+| 8 | Account B isolation | **PASS** |
+| 9 | Repository validate / tests / build / audit | **PASS** |

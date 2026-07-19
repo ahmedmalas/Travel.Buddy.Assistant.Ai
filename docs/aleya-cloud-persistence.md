@@ -16,7 +16,8 @@
 1. `supabase/migrations/20260718120000_travel_buddy_foundation.sql` — tables, RLS, helpers, profile trigger  
 2. `supabase/migrations/20260718120100_travel_buddy_storage.sql` — `travel-documents` bucket + storage policies  
 3. `supabase/migrations/20260719120000_travel_buddy_security_hardening.sql` — revoke anon execute, indexes, initplan policies  
-4. `supabase/migrations/20260719120100_travel_buddy_launch_grants.sql` — grants to `authenticated` / `service_role`
+4. `supabase/migrations/20260719120100_travel_buddy_launch_grants.sql` — grants to `authenticated` / `service_role`  
+5. `supabase/migrations/20260719120200_travel_buddy_trips_returning_select.sql` — trips SELECT policy so INSERT…RETURNING works for owners
 
 ## Apply
 
