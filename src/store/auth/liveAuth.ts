@@ -283,8 +283,12 @@ export async function hydrateAuthFromSession(
 
   const user = data.session?.user;
   if (!user) {
+    // Cloud Auth is configured — never remain in demo-local once the client is live.
     return {
-      state: state.mode === 'demo-local' ? state : signOutLocal(state),
+      state: {
+        ...signOutLocal(state),
+        message: 'Cloud Auth ready. Sign in to sync trips.',
+      },
       provider: 'supabase',
       emailVerified: null,
       error: null,

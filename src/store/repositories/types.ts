@@ -73,9 +73,9 @@ export type CloudAdapterPlan = {
 
 export const SUPABASE_ADAPTER_PLAN: CloudAdapterPlan = {
   provider: 'supabase',
-  status: 'target-unverified',
+  status: 'connected',
   notes:
-    'LocalStorageDataProvider remains the default. SupabaseDataProvider implements the same DataRepositories contracts and activates when VITE_SUPABASE_* env is set. Remote migrations are blocked until a Travel Buddy project target is verified.',
+    'Production target jtktojbvbmiewpntpvhe (aleya travel assistant). Repositories switch to Supabase when VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are present. Do not use retired ref farnjmgwcayvkzuaoifk.',
   interfaces: ['trips', 'bookings', 'expenses', 'travellers', 'documents', 'templates', 'collaboration'],
   remoteMigrationsApplied: false,
 };

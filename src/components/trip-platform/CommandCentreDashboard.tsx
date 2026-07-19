@@ -2,7 +2,8 @@ import { useSharedTripStore } from '../../store/TripStoreContext';
 import { EmptyState, Panel, PrimaryButton, SecondaryButton } from './shared/ui';
 
 export function CommandCentreDashboard({ onNavigate }: { onNavigate?: (tab: string) => void }) {
-  const { commandCentre, openVaultTrip, unreadNotifications, syncSummary, authState } = useSharedTripStore();
+  const { commandCentre, openVaultTrip, unreadNotifications, syncSummary, authState, authProvider, cloudRuntime } =
+    useSharedTripStore();
 
   return (
     <Panel
@@ -31,7 +32,7 @@ export function CommandCentreDashboard({ onNavigate }: { onNavigate?: (tab: stri
           <p className="text-xs uppercase tracking-[0.18em] text-sky-300">Session / sync</p>
           <p className="mt-2 text-lg font-semibold text-white">{authState.mode}</p>
           <p className="mt-1 text-xs text-slate-400">
-            {syncSummary.network} · {syncSummary.pending} pending
+            {cloudRuntime.activeProvider} · {authProvider} · {syncSummary.network} · {syncSummary.pending} pending
           </p>
         </article>
       </div>

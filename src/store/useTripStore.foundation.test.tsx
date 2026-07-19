@@ -10,7 +10,7 @@ describe('useTripStore foundation slices 45-52', () => {
   it('exposes repository contracts, auth shell, sync queue, notifications and command centre', async () => {
     const { result } = renderHook(() => useTripStore());
     expect(result.current.repositories.trips).toBeTruthy();
-    expect(result.current.cloudAdapterPlan.status).toBe('target-unverified');
+    expect(result.current.cloudAdapterPlan.status).toBe('connected');
     expect(result.current.storageKeyCatalog.activeTrip).toContain('trip-state');
 
     await act(async () => {

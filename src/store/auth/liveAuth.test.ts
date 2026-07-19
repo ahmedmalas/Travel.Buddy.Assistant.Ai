@@ -1,5 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { clearAuthError, liveForgotPassword, liveSignIn, liveSignOut, liveSignUp } from './liveAuth';
+import {
+  clearAuthError,
+  hydrateAuthFromSession,
+  liveForgotPassword,
+  liveSignIn,
+  liveSignOut,
+  liveSignUp,
+} from './liveAuth';
 import { createDefaultAuthState } from './authShell';
 
 describe('liveAuth local/demo fallback', () => {
@@ -56,5 +63,17 @@ describe('liveAuth local/demo fallback', () => {
     const signedOut = await liveSignOut(signedIn.state, null);
     expect(signedOut.state.mode).toBe('signed-out');
     expect(clearAuthError({ ...signedOut.state, message: 'boom' }).message).toBeNull();
+  });
+
+  it('leaves demo-local when a supabase client has no active session', async () => {
+    const client = {
+      auth: {
+        getSession: vi.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      },
+    } as never;
+    const result = await hydrateAuthFromSession(createDefaultAuthState(), client);
+    expect(result.provider).toBe('supabase');
+    expect(result.state.mode).toBe('signed-out');
+    expect(result.state.user).toBeNull();
   });
 });
