@@ -1,5 +1,6 @@
 import type { TravelBuddyClient } from '../../lib/supabase/client';
 import { getSupabaseClient } from '../../lib/supabase/client';
+import { getAuthRedirectUrl, mapAuthDeliveryError } from './authEmail';
 import {
   createDefaultAuthState,
   enterDemoMode,
@@ -33,6 +34,16 @@ const withMessage = (state: AuthShellState, message: string, mode?: AuthShellSta
   updatedAt: new Date().toISOString(),
 });
 
+const failAuth = (state: AuthShellState, message: string, mode?: AuthShellState['mode']): LiveAuthResult => {
+  const mapped = mapAuthDeliveryError(message);
+  return {
+    state: withMessage(state, mapped, mode),
+    provider: 'supabase',
+    emailVerified: null,
+    error: mapped,
+  };
+};
+
 export const clearAuthError = (state: AuthShellState): AuthShellState => ({
   ...state,
   message: null,
@@ -56,12 +67,7 @@ export async function liveSignIn(
 
   const { data, error } = await client.auth.signInWithPassword({ email: email.trim(), password });
   if (error || !data.user) {
-    return {
-      state: withMessage(state, error?.message ?? 'Sign in failed.', 'signed-out'),
-      provider: 'supabase',
-      emailVerified: null,
-      error: error?.message ?? 'Sign in failed.',
-    };
+    return failAuth(state, error?.message ?? 'Sign in failed.', 'signed-out');
   }
 
   const verified = Boolean(data.user.email_confirmed_at);
@@ -104,27 +110,21 @@ export async function liveSignUp(
   }
 
   if (password.length < 6) {
-    return {
-      state: withMessage(state, 'Password must be at least 6 characters.'),
-      provider: 'supabase',
-      emailVerified: null,
-      error: 'Password must be at least 6 characters.',
-    };
+    return failAuth(state, 'Password must be at least 6 characters.');
   }
 
+  const emailRedirectTo = getAuthRedirectUrl('/');
   const { data, error } = await client.auth.signUp({
     email: email.trim(),
     password,
-    options: { data: { display_name: displayName.trim() } },
+    options: {
+      data: { display_name: displayName.trim() },
+      emailRedirectTo,
+    },
   });
 
   if (error) {
-    return {
-      state: withMessage(state, error.message),
-      provider: 'supabase',
-      emailVerified: null,
-      error: error.message,
-    };
+    return failAuth(state, error.message);
   }
 
   const user = data.user;
@@ -135,9 +135,7 @@ export async function liveSignUp(
     state: {
       ...state,
       mode: hasSession ? 'signed-in' : 'signed-out',
-      user: user
-        ? mapUser(user.id, user.email, displayName)
-        : null,
+      user: user ? mapUser(user.id, user.email, displayName) : null,
       screen: hasSession ? 'session' : 'sign-in',
       message: hasSession
         ? verified
@@ -149,6 +147,43 @@ export async function liveSignUp(
     },
     provider: 'supabase',
     emailVerified: user ? verified : false,
+    error: null,
+  };
+}
+
+export async function liveResendVerification(
+  state: AuthShellState,
+  email: string,
+  client: TravelBuddyClient | null = getSupabaseClient(),
+): Promise<LiveAuthResult> {
+  if (!client) {
+    return {
+      state: withMessage(state, 'Verification email is only available when cloud Auth is configured.'),
+      provider: 'local-demo',
+      emailVerified: null,
+      error: 'Cloud Auth is not configured.',
+    };
+  }
+
+  const trimmed = email.trim();
+  if (!trimmed) {
+    return failAuth(state, 'Enter the email address to resend verification.');
+  }
+
+  const { error } = await client.auth.resend({
+    type: 'signup',
+    email: trimmed,
+    options: { emailRedirectTo: getAuthRedirectUrl('/') },
+  });
+
+  if (error) {
+    return failAuth(state, error.message);
+  }
+
+  return {
+    state: withMessage(state, `Verification email resent to ${trimmed}.`),
+    provider: 'supabase',
+    emailVerified: false,
     error: null,
   };
 }
@@ -190,16 +225,10 @@ export async function liveForgotPassword(
     };
   }
 
-  const redirectTo =
-    typeof window !== 'undefined' ? `${window.location.origin}/#/trip-platform` : undefined;
+  const redirectTo = getAuthRedirectUrl('/');
   const { error } = await client.auth.resetPasswordForEmail(email.trim(), { redirectTo });
   if (error) {
-    return {
-      state: withMessage(state, error.message),
-      provider: 'supabase',
-      emailVerified: null,
-      error: error.message,
-    };
+    return failAuth(state, error.message);
   }
 
   return {
@@ -231,22 +260,12 @@ export async function liveResetPassword(
   }
 
   if (password.length < 6) {
-    return {
-      state: withMessage(state, 'Password must be at least 6 characters.'),
-      provider: 'supabase',
-      emailVerified: null,
-      error: 'Password must be at least 6 characters.',
-    };
+    return failAuth(state, 'Password must be at least 6 characters.');
   }
 
   const { error } = await client.auth.updateUser({ password });
   if (error) {
-    return {
-      state: withMessage(state, error.message),
-      provider: 'supabase',
-      emailVerified: null,
-      error: error.message,
-    };
+    return failAuth(state, error.message);
   }
 
   return {
@@ -273,12 +292,7 @@ export async function hydrateAuthFromSession(
 
   const { data, error } = await client.auth.getSession();
   if (error) {
-    return {
-      state: withMessage(state, error.message),
-      provider: 'supabase',
-      emailVerified: null,
-      error: error.message,
-    };
+    return failAuth(state, error.message);
   }
 
   const user = data.session?.user;
@@ -312,3 +326,4 @@ export async function hydrateAuthFromSession(
 }
 
 export { enterDemoMode, setAuthScreen, createDefaultAuthState };
+export { AUTH_EMAIL_SENDER, getAuthRedirectUrl, mapAuthDeliveryError } from './authEmail';

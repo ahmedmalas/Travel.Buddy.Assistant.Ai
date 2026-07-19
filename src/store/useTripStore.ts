@@ -96,6 +96,7 @@ import {
   clearAuthError,
   hydrateAuthFromSession,
   liveForgotPassword,
+  liveResendVerification,
   liveResetPassword,
   liveSignIn,
   liveSignOut,
@@ -5315,6 +5316,13 @@ export function useTripStore() {
       const result = await liveForgotPassword(authState, email);
       setAuthState(result.state);
       setAuthProvider(result.provider);
+      return result;
+    },
+    authResendVerification: async (email: string) => {
+      const result = await liveResendVerification(authState, email);
+      setAuthState(result.state);
+      setAuthProvider(result.provider);
+      setEmailVerified(result.emailVerified);
       return result;
     },
     authResetPassword: async (token: string, password: string) => {

@@ -31,13 +31,26 @@ Never set service-role keys in Vite/`VITE_*` variables.
 
 ## Authentication email (required for launch)
 
-Configure **custom SMTP** (or an approved production email provider) on the Travel Buddy Supabase Auth settings. Do not rely on Supabase’s built-in development mailer for launch.
+Approved provider profile: **Resend** (`smtp.resend.com:587`), sender **Travel Buddy**, from `noreply@mail.travelbuddy.app`, reply-to `support@travelbuddy.app`.
+
+Do not rely on Supabase’s built-in development mailer for launch.
+
+```bash
+export SUPABASE_ACCESS_TOKEN=...
+export RESEND_API_KEY=...
+export VITE_APP_URL=https://YOUR_TRAVEL_BUDDY_DOMAIN
+bash scripts/configure-production-smtp.sh
+```
+
+Details: [`docs/production-email-and-deploy.md`](./production-email-and-deploy.md).
 
 Verify:
 
 1. Sign-up confirmation email delivery
-2. Forgot-password email delivery
-3. Correct Site URL + redirect URLs for the production domain
+2. Resend verification
+3. Forgot-password + reset password
+4. Correct Site URL + redirect URLs for the production domain
+5. Clear UI errors on SMTP / rate-limit failures
 
 ## Monitoring (no extra paid services)
 

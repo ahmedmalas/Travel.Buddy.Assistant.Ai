@@ -1,13 +1,16 @@
 # Travel Buddy — Production launch report
 
 **Baseline commit:** `5175d14`  
-**Branch:** `cursor/production-launch-03b5`
+**Branch:** `cursor/production-launch-03b5`  
+**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17
 
 ## Verdict
 
-**Not launch-ready** until production email delivery and Vercel authentication/deploy are completed. Supabase project, migrations, RLS isolation, OTA demo boundary, SPA/security headers, and ops runbooks are in place.
+**Not launch-ready.**
 
-## Phase 1 — Supabase
+Hard blockers remain: production SMTP credentials and Vercel authentication are unavailable in this cloud-agent environment, so live email, production deploy, domain bind, and full domain acceptance could not be completed.
+
+## Supabase (complete)
 
 | Field | Value |
 |-------|--------|
@@ -16,59 +19,51 @@
 | Ref | `farnjmgwcayvkzuaoifk` |
 | Forbidden projects untouched | yes |
 
-### Migrations applied (remote)
+Migrations applied: foundation, storage, security hardening, launch grants.  
+RLS isolation proof: **9/9 pass**.  
+Private bucket `travel-documents` verified.
 
-1. `travel_buddy_foundation`
-2. `travel_buddy_storage`
-3. `travel_buddy_security_hardening`
-4. `travel_buddy_launch_grants`
+## SMTP / Auth email
 
-Mirrored under `supabase/migrations/`.
+| Item | Status |
+|------|--------|
+| Approved provider profile | **Resend** (`smtp.resend.com:587`) documented in-app + `scripts/configure-production-smtp.sh` |
+| Sender name | Travel Buddy |
+| From / reply-to (intended) | `noreply@mail.travelbuddy.app` / `support@travelbuddy.app` |
+| Custom SMTP applied on project | **No** — missing `SUPABASE_ACCESS_TOKEN` + `RESEND_API_KEY` |
+| Sign-up / verify / forgot / reset / resend verified live | **Blocked** |
+| App support | Resend verification button, delivery error mapping, `emailRedirectTo` / reset redirects via `VITE_APP_URL` |
+| Templates | `supabase/templates/confirmation.html`, `recovery.html` |
 
-### Advisors
+## Vercel
 
-- Security: WARN remains that authenticated can EXECUTE membership helpers used by RLS (expected for policy helpers; anon/public EXECUTE revoked).
-- Performance: INFO unused indexes + Auth connection strategy note only.
+| Item | Status |
+|------|--------|
+| MCP / CLI auth | **Unauthenticated** (desktop MCP auth required; no `VERCEL_TOKEN`) |
+| Project / production URL | **Not created/deployed** |
+| Bound domain | **None** |
+| Env vars on Vercel | **Not set** |
+| Deployment ID | **None** |
+| Prepared artifacts | `vercel.json`, `scripts/deploy-production.sh`, `.github/workflows/deploy-vercel.yml`, rollback docs |
 
-### Isolation proof (SQL, 9/9 pass)
+## Acceptance tests (production domain)
 
-- Owner can select/update trip + documents
-- Stranger cannot select/update/insert forged ownership
-- Viewer collaborator can select, cannot update
+Not run — no production URL. Prior SQL isolation remains **pass**. OTA mock inventory remains clearly disabled in UI.
 
-Private bucket `travel-documents`: `public=false`, 10MB limit, allow-listed MIME types, member/editor storage policies.
-
-## Phase 2 — Auth
-
-App adapters for sign-up/in/out, forgot/reset, session persistence, visibility/errors exist. **Production SMTP not configured in this environment** (no SMTP/Resend credentials). Live email verification and reset flows remain blocked.
-
-## Phase 3–4 — Cloud sync / documents
-
-Adapters and RLS/storage policies ready. End-to-end cloud sync and signed document upload against production require env wiring + working auth email + deployed app.
-
-## Phase 5 — Vercel
-
-`vercel.json` adds SPA rewrites, security headers, HSTS, CSP. **Vercel MCP/CLI not authenticated in this agent environment** — production deploy and domain binding pending operator auth.
-
-## Phase 6 — Monitoring / ops
-
-See `docs/production-ops-runbook.md` (logs, rollback, backups, uptime, analytics).
-
-## Phase 7 — OTA boundary
-
-`getInventoryMode()` defaults to `demo-simulated`; live adapter registry empty; Deal Engine UI shows **LIVE PROVIDERS DISABLED** banner and explicit false claims.
-
-## Phase 8 — Acceptance
-
-Full production-domain acceptance test pending deploy + email.
-
-## Gate results (this branch)
+## Gate results (latest branch revision)
 
 | Gate | Result |
 |------|--------|
 | `npm run typecheck` | pass |
-| `npm test` | 154 passed |
-| `npm run test:coverage` | statements 68.14% / branches 56.03% / functions 61.96% / lines 69.18% (thresholds unchanged) |
+| `npm test` | **159** passed |
+| `npm run test:coverage` | statements 68.11% / branches 56.18% / functions 61.94% / lines 69.16% |
 | `npm run build` | pass |
 | `npm run validate` | pass |
 | `npm audit` | 0 vulnerabilities |
+
+## Operator next steps
+
+1. Authenticate Vercel in Cursor desktop (MCP) **or** export `VERCEL_TOKEN`
+2. Export `SUPABASE_ACCESS_TOKEN` + `RESEND_API_KEY` and run `scripts/configure-production-smtp.sh`
+3. Run `scripts/deploy-production.sh`, bind domain, set `VITE_APP_URL`
+4. Execute Phase 8 acceptance on the live domain
