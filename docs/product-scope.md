@@ -84,14 +84,25 @@ Details: [`docs/completed-slices.md`](completed-slices.md).
 - Grouped navigation + design polish + onboarding
 - Error boundaries, backup v5 migration compatibility, docs/QA
 
+### Completed in Slices 73–88 (Super Deal Engine & Partner Platform)
+
+- Provider-neutral adapters (mock/demo) across major inventory categories
+- Universal fee-inclusive offer model + explainable, commission-independent ranking
+- Flight/stay super-search, whole-trip packages, flexible discovery
+- Comparison/handoff checklist (no payments), price alerts (simulated)
+- Preference profiles, trust centre, affiliate attribution
+- Partner centre / onboarding framework / growth foundations
+- Backup v6 + deal-engine persistence; docs for adapters, ranking, partnerships, disclosures
+
 ### Still placeholder / future
 
-Live destination discovery, supplier inventory, paid maps, and AI assistant access remain future work. Verified production Supabase project linkage is still pending.
+Live supplier inventory (after credentials + approval), paid maps, and AI assistant access remain future work. Verified production Supabase project linkage is still pending.
 
 ## Non-goals for the baseline
 
-- No fake booking engine
-- No fake airline or hotel inventory
-- No unsupported claims of complete provider access
+- No fake booking engine claiming live inventory
+- No unsupported claims of complete provider access or global cheapest
 - No scraping or provider access unless legally and technically approved
+- No fabricating conversions, savings testimonials, or partnership endorsements
 - No applying cloud migrations to unrelated Supabase projects
+- No automatic booking or payment processing yet

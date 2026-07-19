@@ -31,6 +31,7 @@ export * as accountSettings from '../settings/accountSettings';
 export * as travelOpsDomain from '../travelOpsDomain';
 export * as smartAssistance from '../smartAssistance';
 export * as onboarding from '../onboarding';
+export * as dealEngine from '../../deal-engine';
 
 export {
   migrateVaultState,

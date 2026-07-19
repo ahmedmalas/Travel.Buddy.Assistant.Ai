@@ -28,6 +28,9 @@ export default defineConfig({
         'src/components/trip-platform/JournalPanel.tsx',
         'src/components/trip-platform/AssistancePanel.tsx',
         'src/components/trip-platform/OnboardingPanel.tsx',
+        'src/components/trip-platform/DealEnginePanel.tsx',
+        'src/components/trip-platform/PartnerCentrePanel.tsx',
+        'src/components/trip-platform/GrowthEnginePanel.tsx',
         'src/components/ErrorBoundary.tsx',
       ],
       thresholds: {
