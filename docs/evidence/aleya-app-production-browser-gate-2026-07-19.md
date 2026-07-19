@@ -13,12 +13,13 @@ No access tokens, service-role keys, publishable keys, JWTs, or passwords are in
 
 | Check | Result |
 |-------|--------|
-| GitHub→Vercel preview for PR #20 SHA | **FAIL** — `build-rate-limit` / `upgradeToPro` ("retry in 24 hours") |
-| Vercel CLI deploy | **BLOCKED** — no CLI credentials in this environment |
-| Local preview of PR #20 build vs production Supabase | **PASS** — `http://127.0.0.1:4173/` serving current `dist` |
+| GitHub→Vercel preview for PR #20 SHA `c79ada0` | **PASS** — deployment `dpl_6B3Cz6wXYNEXa9SrkyEpCkPUCRBC` **READY** |
+| Preview URL | `https://travel-buddy-assistant-ew6o5v12b-ahmedmalas-projects.vercel.app` (Vercel auth protection; share link used for browser smoke) |
+| Branch alias | `https://travel-buddy-assistant-ai-git-cursor-43610e-ahmedmalas-projects.vercel.app` |
+| Preview bundle | Aleya URL + publishable key + Trip brief present |
+| Preview browser smoke (Account A sign-in, hydrate, Trip brief) | **PASS** |
+| Local preview of PR #20 build vs production Supabase | **PASS** — used for full A/B + storage gates |
 | Production URL | `https://travel-buddy-assistant-ai.vercel.app` (main / #18) — Auth to Aleya works |
-
-**Outstanding blocker for undraft:** PR #20 Vercel preview remains rate-limited. Local preview was used for full browser gates against the live Aleya project.
 
 ## 2. Automated gates (this branch)
 
@@ -95,7 +96,8 @@ Orphan cleanup: app delete path removes storage object + metadata row in UI flow
 | Storage verified | **PASS** |
 | Persistence verified | **PASS** |
 | Security verified | **PASS** |
-| Preview deployment healthy | **FAIL** — Vercel `build-rate-limit` (24h) |
-| No outstanding production blockers | **BLOCKED** by preview rate limit (+ confirm email `redirect_to` still defaults to `http://localhost:3000`) |
+| Preview deployment healthy | **PASS** |
+| No outstanding production blockers | **PASS** for app/cloud gates (note: auth email `redirect_to` still includes `http://localhost:3000` in confirm links — set Site URL / redirect allow-list in Supabase dashboard for cleaner UX) |
 
-**PR #20 remains draft** until Vercel preview for this branch is healthy.
+**PR #20 undrafted** after preview READY + Account A/B/storage/security gates.
+**Merge still depends on PR #19** being merged (or explicit human exception).
