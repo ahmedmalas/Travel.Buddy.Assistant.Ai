@@ -20,3 +20,6 @@ pnpm-debug.log*
 .env.local
 .env.production.local
 .env*.local
+
+# Supabase CLI link cache
+supabase/.temp/
