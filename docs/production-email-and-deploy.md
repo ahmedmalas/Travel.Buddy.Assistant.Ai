@@ -1,67 +1,50 @@
 # Production email + Vercel deploy (operator runbook)
 
-This agent environment does **not** hold `SUPABASE_ACCESS_TOKEN`, Resend/`SMTP_PASS`, or `VERCEL_TOKEN`. Interactive Vercel MCP auth is desktop-only. Use this checklist on an authenticated machine.
+## Approved targets
 
-## 1) Approved SMTP (Resend)
+| Item | Value |
+|------|--------|
+| Supabase org | `tasqkbrzxjralyelioyv` |
+| Supabase project | `aleya travel assistant` |
+| Project ref | **must be confirmed after Supabase MCP reauth** |
+| Vercel team | `ahmedmalas-projects` |
+| Vercel project | `travel-buddy-assistant-ai` |
+| Forbidden | `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator |
 
-| Setting | Value |
-|---------|--------|
-| Provider | Resend |
-| SMTP host | `smtp.resend.com` |
-| Port | `587` |
-| Username | `resend` |
-| Password | Resend API key |
-| Sender name | `Travel Buddy` |
-| From | `noreply@mail.travelbuddy.app` (must be verified in Resend) |
-| Reply-To | `support@travelbuddy.app` |
-| Project | `travel-buddy-production` (`farnjmgwcayvkzuaoifk`) only |
+## Auth blockers in cloud agents
+
+Interactive MCP authentication (`mcp_auth`) only works in **Cursor desktop**. Cloud agents cannot reauthenticate Supabase/Vercel MCP sessions.
+
+## 1) Supabase MCP reauth
+
+1. Open Cursor desktop → MCP settings → Supabase → Authenticate / Reauthenticate
+2. Select organisation **`tasqkbrzxjralyelioyv`**
+3. Restart or continue the cloud agent so `list_organizations` includes that org and `aleya travel assistant` appears in `list_projects`
+4. Record the **exact project ref** before any migrations
+
+## 2) Resend SMTP
 
 ```bash
-export SUPABASE_ACCESS_TOKEN=...   # owner/admin PAT
+export SUPABASE_ACCESS_TOKEN=...
 export RESEND_API_KEY=re_...
-export VITE_APP_URL=https://YOUR_TRAVEL_BUDDY_DOMAIN
+export PROJECT_REF=<aleya-travel-assistant-ref>
+export VITE_APP_URL=https://YOUR_PRODUCTION_DOMAIN
 bash scripts/configure-production-smtp.sh
 ```
 
-Verify:
+## 3) Vercel
 
-1. Sign-up confirmation email
-2. Resend verification
-3. Forgot password email
-4. Reset password link lands on production URL
-5. Delivery failure surfaces a clear Auth error (rate-limit / SMTP)
-
-Do **not** leave Auth on Supabase’s development mailer.
-
-## 2) Vercel deploy
-
-Create/confirm a dedicated project named `travel-buddy-production` (or similar). Production env only:
-
-```
-VITE_SUPABASE_URL=https://farnjmgwcayvkzuaoifk.supabase.co
-VITE_SUPABASE_ANON_KEY=<Travel Buddy publishable/anon key>
-VITE_SUPABASE_PROJECT_REF=farnjmgwcayvkzuaoifk
-VITE_APP_URL=https://YOUR_TRAVEL_BUDDY_DOMAIN
-```
-
-Never point at ABoss / TPG / Aleya Invoicing / Aleya Logo Creator projects.
+Authenticate Vercel MCP in Cursor desktop **or** export `VERCEL_TOKEN`, then:
 
 ```bash
 export VERCEL_TOKEN=...
-export VITE_SUPABASE_URL=https://farnjmgwcayvkzuaoifk.supabase.co
-export VITE_SUPABASE_ANON_KEY=...
-export VITE_SUPABASE_PROJECT_REF=farnjmgwcayvkzuaoifk
-export VITE_APP_URL=https://YOUR_TRAVEL_BUDDY_DOMAIN
+export VERCEL_SCOPE=ahmedmalas-projects
+export VERCEL_PROJECT_NAME=travel-buddy-assistant-ai
+export VITE_SUPABASE_URL=https://<ref>.supabase.co
+export VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
+export VITE_SUPABASE_PROJECT_REF=<ref>
+export VITE_APP_URL=https://YOUR_PRODUCTION_DOMAIN
 bash scripts/deploy-production.sh
 ```
 
-Then:
-
-- Bind the approved Travel Buddy domain
-- Confirm HTTPS
-- Confirm SPA deep links (e.g. `/` refresh) and security headers from `vercel.json`
-- Document prior deployment id for rollback (`vercel rollback` or Promote in UI)
-
-## 3) Acceptance
-
-Run the Phase 8 checklist on the production domain after email + deploy succeed. See `docs/production-launch-report.md`.
+Then set Auth site URL + redirect allow-list to `VITE_APP_URL`.

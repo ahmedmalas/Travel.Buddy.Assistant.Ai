@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy Travel Buddy to a dedicated Vercel project.
+# Deploy Travel Buddy to Vercel project travel-buddy-assistant-ai (team ahmedmalas-projects).
 # Requires: VERCEL_TOKEN. Optional: VERCEL_ORG_ID, VERCEL_PROJECT_ID.
 set -euo pipefail
 
@@ -11,36 +11,47 @@ if [[ -z "${VERCEL_TOKEN:-}" ]]; then
   exit 1
 fi
 
-if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${VITE_SUPABASE_ANON_KEY:-}" ]]; then
-  echo "Missing VITE_SUPABASE_URL / VITE_SUPABASE_ANON_KEY" >&2
+PUBLISHABLE_KEY="${VITE_SUPABASE_PUBLISHABLE_KEY:-${VITE_SUPABASE_ANON_KEY:-}}"
+if [[ -z "${VITE_SUPABASE_URL:-}" || -z "${PUBLISHABLE_KEY}" ]]; then
+  echo "Missing VITE_SUPABASE_URL / VITE_SUPABASE_PUBLISHABLE_KEY" >&2
   exit 1
 fi
 
-if [[ "${VITE_SUPABASE_URL}" != *"farnjmgwcayvkzuaoifk"* ]]; then
-  echo "Refusing deploy: VITE_SUPABASE_URL must point at travel-buddy-production (farnjmgwcayvkzuaoifk)" >&2
+if [[ "${VITE_SUPABASE_URL}" == *"farnjmgwcayvkzuaoifk"* ]]; then
+  echo "Refusing deploy: retired project farnjmgwcayvkzuaoifk must not be used." >&2
   exit 1
 fi
 
-PROJECT_NAME="${VERCEL_PROJECT_NAME:-travel-buddy-production}"
+for forbidden in iwmloenntlzyzvguwfsn bmfpclozzmeekazmoaxw wrmwthsfbpkjsxsqigpw; do
+  if [[ "${VITE_SUPABASE_URL}" == *"${forbidden}"* ]]; then
+    echo "Refusing deploy: forbidden Supabase project ${forbidden}" >&2
+    exit 1
+  fi
+done
 
-npx --yes vercel@39 pull --yes --environment=production --token "$VERCEL_TOKEN" || true
-npx --yes vercel@39 link --yes --project "$PROJECT_NAME" --token "$VERCEL_TOKEN"
+PROJECT_NAME="${VERCEL_PROJECT_NAME:-travel-buddy-assistant-ai}"
+SCOPE="${VERCEL_SCOPE:-ahmedmalas-projects}"
 
-# Ensure production env (idempotent-ish; vercel env add fails if exists — ignore)
+npx --yes vercel@39 pull --yes --environment=production --token "$VERCEL_TOKEN" --scope "$SCOPE" || true
+npx --yes vercel@39 link --yes --project "$PROJECT_NAME" --token "$VERCEL_TOKEN" --scope "$SCOPE"
+
 add_env() {
   local key="$1"
   local value="$2"
-  printf '%s' "$value" | npx --yes vercel@39 env add "$key" production --token "$VERCEL_TOKEN" 2>/dev/null || true
+  printf '%s' "$value" | npx --yes vercel@39 env add "$key" production --token "$VERCEL_TOKEN" --scope "$SCOPE" 2>/dev/null || true
 }
 
 add_env VITE_SUPABASE_URL "$VITE_SUPABASE_URL"
-add_env VITE_SUPABASE_ANON_KEY "$VITE_SUPABASE_ANON_KEY"
-add_env VITE_SUPABASE_PROJECT_REF "${VITE_SUPABASE_PROJECT_REF:-farnjmgwcayvkzuaoifk}"
+add_env VITE_SUPABASE_PUBLISHABLE_KEY "$PUBLISHABLE_KEY"
+add_env VITE_SUPABASE_ANON_KEY "$PUBLISHABLE_KEY"
+if [[ -n "${VITE_SUPABASE_PROJECT_REF:-}" ]]; then
+  add_env VITE_SUPABASE_PROJECT_REF "$VITE_SUPABASE_PROJECT_REF"
+fi
 if [[ -n "${VITE_APP_URL:-}" ]]; then
   add_env VITE_APP_URL "$VITE_APP_URL"
 fi
 
-npx --yes vercel@39 build --prod --token "$VERCEL_TOKEN"
-DEPLOY_URL=$(npx --yes vercel@39 deploy --prebuilt --prod --token "$VERCEL_TOKEN")
+npx --yes vercel@39 build --prod --token "$VERCEL_TOKEN" --scope "$SCOPE"
+DEPLOY_URL=$(npx --yes vercel@39 deploy --prebuilt --prod --token "$VERCEL_TOKEN" --scope "$SCOPE")
 echo "Production deploy URL: ${DEPLOY_URL}"
-echo "Rollback: vercel rollback --token \$VERCEL_TOKEN  OR promote previous deployment in Vercel UI"
+echo "Rollback: vercel rollback --token \$VERCEL_TOKEN --scope ${SCOPE}  OR promote previous deployment in Vercel UI"

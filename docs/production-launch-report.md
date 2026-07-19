@@ -1,69 +1,48 @@
 # Travel Buddy — Production launch report
 
-**Baseline commit:** `5175d14`  
 **Branch:** `cursor/production-launch-03b5`  
-**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17
+**PR:** https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/17 (draft)
 
 ## Verdict
 
-**Not launch-ready.**
+**Not launch-ready — stopped on authentication blockers.**
 
-Hard blockers remain: production SMTP credentials and Vercel authentication are unavailable in this cloud-agent environment, so live email, production deploy, domain bind, and full domain acceptance could not be completed.
+## Approved infrastructure (declared)
 
-## Supabase (complete)
+| System | Target |
+|--------|--------|
+| Supabase organisation | `tasqkbrzxjralyelioyv` |
+| Supabase project name | `aleya travel assistant` |
+| Supabase project ref | **UNKNOWN — not visible to current MCP session** |
+| Vercel team | `ahmedmalas-projects` |
+| Vercel project | `travel-buddy-assistant-ai` |
 
-| Field | Value |
-|-------|--------|
-| Organisation | The Peptides Guy (`axqrjaxwqjiqphdhzbcr`) |
-| Project | `travel-buddy-production` |
-| Ref | `farnjmgwcayvkzuaoifk` |
-| Forbidden projects untouched | yes |
+Retired / forbidden: `farnjmgwcayvkzuaoifk`, ABoss, AI Invoicing, Aleya Logo Creator. No changes applied to those.
 
-Migrations applied: foundation, storage, security hardening, launch grants.  
-RLS isolation proof: **9/9 pass**.  
-Private bucket `travel-documents` verified.
+## Exact stop reason
 
-## SMTP / Auth email
+1. **Supabase MCP** is authenticated only to org `axqrjaxwqjiqphdhzbcr` (“The Peptides Guy”).  
+   - `get_organization(tasqkbrzxjralyelioyv)` → permission denied  
+   - `list_organizations` does not include `tasqkbrzxjralyelioyv`  
+   - Project **aleya travel assistant** therefore cannot be located; **project ref cannot be reported**  
+   - Interactive `mcp_auth` for Supabase is **not available in this cloud-agent environment** (desktop IDE only)
 
-| Item | Status |
-|------|--------|
-| Approved provider profile | **Resend** (`smtp.resend.com:587`) documented in-app + `scripts/configure-production-smtp.sh` |
-| Sender name | Travel Buddy |
-| From / reply-to (intended) | `noreply@mail.travelbuddy.app` / `support@travelbuddy.app` |
-| Custom SMTP applied on project | **No** — missing `SUPABASE_ACCESS_TOKEN` + `RESEND_API_KEY` |
-| Sign-up / verify / forgot / reset / resend verified live | **Blocked** |
-| App support | Resend verification button, delivery error mapping, `emailRedirectTo` / reset redirects via `VITE_APP_URL` |
-| Templates | `supabase/templates/confirmation.html`, `recovery.html` |
+2. **Vercel MCP** status `needsAuth`; interactive auth desktop-only; no `VERCEL_TOKEN` in environment → cannot link/deploy `travel-buddy-assistant-ai`
 
-## Vercel
+3. **Resend SMTP** still requires `RESEND_API_KEY` + verified sending domain + `SUPABASE_ACCESS_TOKEN` for Auth PATCH
 
-| Item | Status |
-|------|--------|
-| MCP / CLI auth | **Unauthenticated** (desktop MCP auth required; no `VERCEL_TOKEN`) |
-| Project / production URL | **Not created/deployed** |
-| Bound domain | **None** |
-| Env vars on Vercel | **Not set** |
-| Deployment ID | **None** |
-| Prepared artifacts | `vercel.json`, `scripts/deploy-production.sh`, `.github/workflows/deploy-vercel.yml`, rollback docs |
+## Required from operator (resume checklist)
 
-## Acceptance tests (production domain)
+1. In **Cursor desktop**, reauthenticate **Supabase MCP** and select organisation **`tasqkbrzxjralyelioyv`**
+2. Confirm project **`aleya travel assistant`** appears; paste its **exact project ref** into the agent thread (or restart the cloud agent after MCP reauth)
+3. Authenticate **Vercel MCP** in Cursor desktop (team `ahmedmalas-projects`) **or** provide `VERCEL_TOKEN`
+4. Provide `RESEND_API_KEY` + verified domain when ready for SMTP
 
-Not run — no production URL. Prior SQL isolation remains **pass**. OTA mock inventory remains clearly disabled in UI.
+After that, the agent will: report ref → apply migrations/RLS/storage → configure Vercel env (`VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`, `VITE_APP_URL`) → deploy → set Auth site/redirect URLs → SMTP → acceptance.
 
-## Gate results (latest branch revision)
+## App changes prepared on this branch
 
-| Gate | Result |
-|------|--------|
-| `npm run typecheck` | pass |
-| `npm test` | **159** passed |
-| `npm run test:coverage` | statements 68.11% / branches 56.18% / functions 61.94% / lines 69.16% |
-| `npm run build` | pass |
-| `npm run validate` | pass |
-| `npm audit` | 0 vulnerabilities |
-
-## Operator next steps
-
-1. Authenticate Vercel in Cursor desktop (MCP) **or** export `VERCEL_TOKEN`
-2. Export `SUPABASE_ACCESS_TOKEN` + `RESEND_API_KEY` and run `scripts/configure-production-smtp.sh`
-3. Run `scripts/deploy-production.sh`, bind domain, set `VITE_APP_URL`
-4. Execute Phase 8 acceptance on the live domain
+- Env target no longer accepts/uses `farnjmgwcayvkzuaoifk`
+- Accepts `VITE_SUPABASE_PUBLISHABLE_KEY` (anon key still aliased)
+- Deploy/SMTP scripts retargeted to Vercel `travel-buddy-assistant-ai` / org `tasqkbrzxjralyelioyv`
+- Auth resend + delivery error mapping retained

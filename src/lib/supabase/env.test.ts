@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   FORBIDDEN_SUPABASE_PROJECTS,
   SUPABASE_TARGET_VERIFICATION,
-  TRAVEL_BUDDY_SUPABASE_PROJECT,
+  TRAVEL_BUDDY_SUPABASE_ORG,
   validateSupabaseEnv,
 } from './env';
 
@@ -13,40 +13,38 @@ describe('validateSupabaseEnv', () => {
     if (!result.ok) {
       expect(result.mode).toBe('local-demo');
       expect(result.missing).toContain('VITE_SUPABASE_URL');
-      expect(result.missing).toContain('VITE_SUPABASE_ANON_KEY');
+      expect(result.missing).toContain('VITE_SUPABASE_PUBLISHABLE_KEY');
     }
   });
 
-  it('accepts Travel Buddy project URL and publishable keys', () => {
+  it('accepts publishable key alias and a non-forbidden supabase URL while target is pending', () => {
     const result = validateSupabaseEnv({
-      VITE_SUPABASE_URL: TRAVEL_BUDDY_SUPABASE_PROJECT.url,
-      VITE_SUPABASE_ANON_KEY: 'sb_publishable_test_key_123',
-      VITE_SUPABASE_PROJECT_REF: TRAVEL_BUDDY_SUPABASE_PROJECT.ref,
+      VITE_SUPABASE_URL: 'https://abcdefghijklmnop.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_key_123',
+      VITE_SUPABASE_PROJECT_REF: 'abcdefghijklmnop',
     });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.mode).toBe('cloud-ready');
-      expect(result.config.projectRef).toBe(TRAVEL_BUDDY_SUPABASE_PROJECT.ref);
+      expect(result.config.projectRef).toBe('abcdefghijklmnop');
     }
   });
 
-  it('rejects non-Travel-Buddy Supabase project URLs', () => {
+  it('rejects the retired travel-buddy-production project ref', () => {
     const result = validateSupabaseEnv({
-      VITE_SUPABASE_URL: 'https://iwmloenntlzyzvguwfsn.supabase.co',
-      VITE_SUPABASE_ANON_KEY: 'sb_publishable_test_key_123',
+      VITE_SUPABASE_URL: 'https://farnjmgwcayvkzuaoifk.supabase.co',
+      VITE_SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_key_123',
     });
     expect(result.ok).toBe(false);
   });
 
-  it('records the verified Travel Buddy production target', () => {
-    expect(SUPABASE_TARGET_VERIFICATION.verified).toBe(true);
-    expect(SUPABASE_TARGET_VERIFICATION.remoteMigrationsApplied).toBe(true);
-    expect(SUPABASE_TARGET_VERIFICATION.projectRef).toBe(TRAVEL_BUDDY_SUPABASE_PROJECT.ref);
-    expect(SUPABASE_TARGET_VERIFICATION.isolationProof.passed).toBe(true);
-    expect(FORBIDDEN_SUPABASE_PROJECTS.map((p) => p.name)).toEqual([
-      'aboss-production',
-      'ai-invoicing-app-production',
-      'aleya-logo-creator',
-    ]);
+  it('records approved org and pending project verification', () => {
+    expect(SUPABASE_TARGET_VERIFICATION.verified).toBe(false);
+    expect(SUPABASE_TARGET_VERIFICATION.remoteMigrationsApplied).toBe(false);
+    expect(SUPABASE_TARGET_VERIFICATION.projectRef).toBeNull();
+    expect(TRAVEL_BUDDY_SUPABASE_ORG.id).toBe('tasqkbrzxjralyelioyv');
+    expect(TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName).toBe('aleya travel assistant');
+    expect(FORBIDDEN_SUPABASE_PROJECTS.map((p) => p.id)).toContain('farnjmgwcayvkzuaoifk');
+    expect(SUPABASE_TARGET_VERIFICATION.vercel.project).toBe('travel-buddy-assistant-ai');
   });
 });

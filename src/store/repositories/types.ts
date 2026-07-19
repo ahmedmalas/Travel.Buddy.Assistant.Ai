@@ -73,11 +73,11 @@ export type CloudAdapterPlan = {
 
 export const SUPABASE_ADAPTER_PLAN: CloudAdapterPlan = {
   provider: 'supabase',
-  status: 'env-ready',
+  status: 'target-unverified',
   notes:
-    'Travel Buddy Supabase project travel-buddy-production (farnjmgwcayvkzuaoifk) is verified and migrations are applied. LocalStorageDataProvider remains the runtime default until VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY are configured; then SupabaseDataProvider activates for the same repository contracts.',
+    'Approved org tasqkbrzxjralyelioyv / project "aleya travel assistant" is not yet visible to Supabase MCP. LocalStorageDataProvider remains default until the project ref is verified and VITE_SUPABASE_URL + VITE_SUPABASE_PUBLISHABLE_KEY are set. Do not use retired ref farnjmgwcayvkzuaoifk.',
   interfaces: ['trips', 'bookings', 'expenses', 'travellers', 'documents', 'templates', 'collaboration'],
-  remoteMigrationsApplied: true,
+  remoteMigrationsApplied: false,
 };
 
 export type ActiveTripSnapshot = TripData;

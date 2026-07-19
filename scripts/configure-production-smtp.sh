@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Configure custom SMTP on travel-buddy-production via Supabase Management API.
-# Requires: SUPABASE_ACCESS_TOKEN (owner/admin PAT), RESEND_API_KEY (or SMTP_PASS).
-# Does not use Supabase development mailer.
+# Configure custom SMTP on the verified aleya travel assistant project via Management API.
+# Requires: SUPABASE_ACCESS_TOKEN, RESEND_API_KEY (or SMTP_PASS), PROJECT_REF, VITE_APP_URL/SITE_URL.
+# Do not use retired ref farnjmgwcayvkzuaoifk.
 set -euo pipefail
 
-PROJECT_REF="${PROJECT_REF:-farnjmgwcayvkzuaoifk}"
+PROJECT_REF="${PROJECT_REF:-${VITE_SUPABASE_PROJECT_REF:-}}"
 SMTP_HOST="${SMTP_HOST:-smtp.resend.com}"
 SMTP_PORT="${SMTP_PORT:-587}"
 SMTP_USER="${SMTP_USER:-resend}"
@@ -16,6 +16,14 @@ URI_ALLOW_LIST="${URI_ALLOW_LIST:-}"
 
 if [[ -z "${SUPABASE_ACCESS_TOKEN:-}" ]]; then
   echo "Missing SUPABASE_ACCESS_TOKEN (https://supabase.com/dashboard/account/tokens)" >&2
+  exit 1
+fi
+if [[ -z "${PROJECT_REF}" ]]; then
+  echo "Missing PROJECT_REF for aleya travel assistant (org tasqkbrzxjralyelioyv)" >&2
+  exit 1
+fi
+if [[ "${PROJECT_REF}" == "farnjmgwcayvkzuaoifk" ]]; then
+  echo "Refusing: retired project farnjmgwcayvkzuaoifk must not be used." >&2
   exit 1
 fi
 if [[ -z "${SMTP_PASS}" ]]; then
@@ -56,5 +64,3 @@ curl -sS -X PATCH "https://api.supabase.com/v1/projects/${PROJECT_REF}/config/au
   -d "${BODY}" | python3 -c 'import json,sys; d=json.load(sys.stdin); print({k:d.get(k) for k in ["smtp_host","smtp_port","smtp_admin_email","smtp_sender_name","site_url","mailer_autoconfirm"] if isinstance(d,dict)}); print("ok") if isinstance(d,dict) else sys.exit(1)'
 
 echo "SMTP configuration request completed."
-echo "Verify: sign-up confirmation, resend verification, forgot/reset password emails."
-echo "Set reply-to (${SMTP_ADMIN_EMAIL} / support@travelbuddy.app) in Resend domain settings as needed."

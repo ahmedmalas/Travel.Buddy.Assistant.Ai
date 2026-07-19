@@ -8,15 +8,41 @@ export type SupabaseEnvValidation =
   | { ok: true; config: SupabaseEnvConfig; mode: 'cloud-ready' }
   | { ok: false; mode: 'local-demo'; reason: string; missing: string[] };
 
+/** Approved Travel Buddy organisation — project ref pending MCP reauthentication. */
+export const TRAVEL_BUDDY_SUPABASE_ORG = {
+  id: 'tasqkbrzxjralyelioyv',
+  name: 'Aleya (approved Travel Buddy org)',
+  expectedProjectName: 'aleya travel assistant',
+} as const;
+
+/**
+ * Forbidden projects / refs — never apply Travel Buddy migrations or use these.
+ * Includes the retired Peptides Guy travel-buddy-production project.
+ */
+export const FORBIDDEN_SUPABASE_PROJECTS = [
+  { id: 'farnjmgwcayvkzuaoifk', name: 'travel-buddy-production (retired — do not use)' },
+  { id: 'iwmloenntlzyzvguwfsn', name: 'aboss-production' },
+  { id: 'bmfpclozzmeekazmoaxw', name: 'ai-invoicing-app-production' },
+  { id: 'wrmwthsfbpkjsxsqigpw', name: 'aleya-logo-creator' },
+] as const;
+
+const FORBIDDEN_REFS = new Set<string>(FORBIDDEN_SUPABASE_PROJECTS.map((project) => project.id));
+
+const readPublishableKey = (env: Record<string, string | undefined>): string => {
+  const publishable = (env.VITE_SUPABASE_PUBLISHABLE_KEY ?? '').trim();
+  if (publishable) return publishable;
+  return (env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+};
+
 export const validateSupabaseEnv = (
   env: Record<string, string | undefined> = import.meta.env as Record<string, string | undefined>,
 ): SupabaseEnvValidation => {
   const url = (env.VITE_SUPABASE_URL ?? '').trim();
-  const anonKey = (env.VITE_SUPABASE_ANON_KEY ?? '').trim();
+  const anonKey = readPublishableKey(env);
   const projectRef = (env.VITE_SUPABASE_PROJECT_REF ?? '').trim() || null;
   const missing: string[] = [];
   if (!url) missing.push('VITE_SUPABASE_URL');
-  if (!anonKey) missing.push('VITE_SUPABASE_ANON_KEY');
+  if (!anonKey) missing.push('VITE_SUPABASE_PUBLISHABLE_KEY');
 
   if (missing.length > 0) {
     return {
@@ -40,26 +66,56 @@ export const validateSupabaseEnv = (
     return {
       ok: false,
       mode: 'local-demo',
-      reason: 'VITE_SUPABASE_ANON_KEY does not look like a publishable/anon key.',
-      missing: ['VITE_SUPABASE_ANON_KEY'],
+      reason: 'VITE_SUPABASE_PUBLISHABLE_KEY does not look like a publishable/anon key.',
+      missing: ['VITE_SUPABASE_PUBLISHABLE_KEY'],
     };
   }
 
-  if (projectRef && projectRef !== TRAVEL_BUDDY_SUPABASE_PROJECT.ref) {
+  const urlRefMatch = url.match(/^https:\/\/([a-z0-9]+)\.supabase\.co\/?$/i);
+  const urlRef = urlRefMatch?.[1] ?? null;
+  if (urlRef && FORBIDDEN_REFS.has(urlRef)) {
     return {
       ok: false,
       mode: 'local-demo',
-      reason: `VITE_SUPABASE_PROJECT_REF must be ${TRAVEL_BUDDY_SUPABASE_PROJECT.ref} (Travel Buddy production).`,
+      reason: `VITE_SUPABASE_URL points at forbidden project ${urlRef}. Use organisation ${TRAVEL_BUDDY_SUPABASE_ORG.id} project "${TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName}" only.`,
+      missing: ['VITE_SUPABASE_URL'],
+    };
+  }
+
+  if (projectRef && FORBIDDEN_REFS.has(projectRef)) {
+    return {
+      ok: false,
+      mode: 'local-demo',
+      reason: `VITE_SUPABASE_PROJECT_REF ${projectRef} is forbidden. Wait for verified "aleya travel assistant" project ref.`,
       missing: ['VITE_SUPABASE_PROJECT_REF'],
     };
   }
 
-  if (url.includes('.supabase.co') && !url.includes(TRAVEL_BUDDY_SUPABASE_PROJECT.ref)) {
+  if (
+    SUPABASE_TARGET_VERIFICATION.verified &&
+    SUPABASE_TARGET_VERIFICATION.projectRef &&
+    urlRef &&
+    urlRef !== SUPABASE_TARGET_VERIFICATION.projectRef
+  ) {
     return {
       ok: false,
       mode: 'local-demo',
-      reason: 'VITE_SUPABASE_URL must point at the verified Travel Buddy project.',
+      reason: `VITE_SUPABASE_URL must point at verified project ${SUPABASE_TARGET_VERIFICATION.projectRef}.`,
       missing: ['VITE_SUPABASE_URL'],
+    };
+  }
+
+  if (
+    SUPABASE_TARGET_VERIFICATION.verified &&
+    SUPABASE_TARGET_VERIFICATION.projectRef &&
+    projectRef &&
+    projectRef !== SUPABASE_TARGET_VERIFICATION.projectRef
+  ) {
+    return {
+      ok: false,
+      mode: 'local-demo',
+      reason: `VITE_SUPABASE_PROJECT_REF must be ${SUPABASE_TARGET_VERIFICATION.projectRef}.`,
+      missing: ['VITE_SUPABASE_PROJECT_REF'],
     };
   }
 
@@ -70,53 +126,39 @@ export const validateSupabaseEnv = (
   };
 };
 
-/** Dedicated Travel Buddy production project — verified 2026-07-19. */
+/** @deprecated Prefer TRAVEL_BUDDY_SUPABASE_ORG + SUPABASE_TARGET_VERIFICATION */
 export const TRAVEL_BUDDY_SUPABASE_PROJECT = {
-  organization: 'The Peptides Guy',
-  organizationId: 'axqrjaxwqjiqphdhzbcr',
-  name: 'travel-buddy-production',
-  ref: 'farnjmgwcayvkzuaoifk',
-  region: 'ap-southeast-2',
-  url: 'https://farnjmgwcayvkzuaoifk.supabase.co',
+  organization: TRAVEL_BUDDY_SUPABASE_ORG.name,
+  organizationId: TRAVEL_BUDDY_SUPABASE_ORG.id,
+  name: TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName,
+  ref: '' as string,
+  region: 'pending',
+  url: '',
 } as const;
 
-/**
- * Forbidden projects — never apply Travel Buddy migrations or use these refs.
- */
-export const FORBIDDEN_SUPABASE_PROJECTS = [
-  { id: 'iwmloenntlzyzvguwfsn', name: 'aboss-production' },
-  { id: 'bmfpclozzmeekazmoaxw', name: 'ai-invoicing-app-production' },
-  { id: 'wrmwthsfbpkjsxsqigpw', name: 'aleya-logo-creator' },
-] as const;
-
-/** @deprecated Use FORBIDDEN_SUPABASE_PROJECTS + TRAVEL_BUDDY_SUPABASE_PROJECT */
-export const ACCESSIBLE_SUPABASE_PROJECTS = [
-  ...FORBIDDEN_SUPABASE_PROJECTS,
-  { id: TRAVEL_BUDDY_SUPABASE_PROJECT.ref, name: TRAVEL_BUDDY_SUPABASE_PROJECT.name },
-] as const;
+/** @deprecated Use FORBIDDEN_SUPABASE_PROJECTS */
+export const ACCESSIBLE_SUPABASE_PROJECTS = FORBIDDEN_SUPABASE_PROJECTS;
 
 export const SUPABASE_TARGET_VERIFICATION = {
-  verified: true as const,
-  organization: `${TRAVEL_BUDDY_SUPABASE_PROJECT.organization} (${TRAVEL_BUDDY_SUPABASE_PROJECT.organizationId})`,
-  projectName: TRAVEL_BUDDY_SUPABASE_PROJECT.name,
-  projectRef: TRAVEL_BUDDY_SUPABASE_PROJECT.ref,
+  verified: false as const,
+  organization: `${TRAVEL_BUDDY_SUPABASE_ORG.name} (${TRAVEL_BUDDY_SUPABASE_ORG.id})`,
+  projectName: TRAVEL_BUDDY_SUPABASE_ORG.expectedProjectName,
+  projectRef: null as string | null,
   reason:
-    'Dedicated Travel Buddy Supabase project travel-buddy-production (farnjmgwcayvkzuaoifk) verified. Foundation, storage, security hardening, and launch grant migrations applied. Forbidden sibling projects were not modified.',
-  accessibleProjects: ACCESSIBLE_SUPABASE_PROJECTS.map((project) => project.name),
+    'Supabase MCP is authenticated to org axqrjaxwqjiqphdhzbcr only. Organisation tasqkbrzxjralyelioyv and project "aleya travel assistant" are not visible yet — reauthenticate Supabase MCP selecting that organisation, then report the project ref before applying migrations. Retired ref farnjmgwcayvkzuaoifk must not be used.',
+  accessibleProjects: [] as string[],
   forbiddenProjects: FORBIDDEN_SUPABASE_PROJECTS.map((project) => project.name),
   localMigrationsPath: 'supabase/migrations/',
   fallbackMode: 'local-demo',
-  remoteMigrationsApplied: true as const,
-  migrationsApplied: [
-    'travel_buddy_foundation',
-    'travel_buddy_storage',
-    'travel_buddy_security_hardening',
-    'travel_buddy_launch_grants',
-  ] as const,
+  remoteMigrationsApplied: false as const,
+  migrationsApplied: [] as const,
   isolationProof: {
-    passed: true as const,
-    checks: 9,
-    summary:
-      'Owner can select/update own trip+documents; stranger cannot select/update/insert; viewer collaborator can select but cannot update.',
+    passed: false as const,
+    checks: 0,
+    summary: 'Isolation proof pending on verified aleya travel assistant project.',
+  },
+  vercel: {
+    team: 'ahmedmalas-projects',
+    project: 'travel-buddy-assistant-ai',
   },
 } as const;
