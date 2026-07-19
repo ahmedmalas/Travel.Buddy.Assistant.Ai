@@ -33,7 +33,7 @@ describe('useTripStore deal engine wiring', () => {
     );
 
     const backup = result.current.toBackupJson();
-    expect(backup).toContain('"backupVersion": 6');
+    expect(backup).toContain('"backupVersion": 7');
     expect(backup).toContain('dealEngine');
     expect(backup).toContain('store-offer-1');
 

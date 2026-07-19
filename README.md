@@ -4,21 +4,23 @@ Travel Buddy Assistant AI is an AI-powered travel planning and concierge applica
 
 ## Current verified baseline
 
-`main` includes Slices **9–72**. Active feature work adds **Slices 73–88 — Super Deal Engine & Partner Platform**:
+`main` includes Slices **9–88**. Active finalisation work completes **Slices 89–100**:
 
-- Provider-neutral mock adapters across flights, stays, ground, activities, insurance, eSIM, parking
-- Universal fee-inclusive offer model + explainable ranking (commission-independent)
-- Flight/stay super-search, whole-trip deal builder, flexible discovery
-- Comparison/handoff checklist (no in-app payments)
-- Price alerts (simulated), preference profiles, trust centre
-- Affiliate attribution + partner centre + onboarding framework
-- Growth foundations (landings, referrals, savings reports) without fabricated metrics
+- Universal import (ICS/CSV/email/PDF-text/backups) with confidence review
+- Trip Health Score audits
+- Offline indicators + degraded mode helpers
+- Performance (code splitting, virtual lists, search helpers)
+- Accessibility + security hardening checklists
+- Local privacy-respecting analytics
+- Release centre (flags, notes, compatibility)
+- Operations dashboard
+- Developer platform docs + launch readiness reports
 
-Local/demo mode remains the default. Cloud mode stays inactive unless a verified Travel Buddy Supabase project is linked.
+Local/demo mode remains the default. Cloud mode stays inactive unless a verified Travel Buddy Supabase project is linked. Live commercial providers and payments remain disabled.
 
-Backup schema version: **6** (imports v2–v6).
+Backup schema version: **7** (imports v2–v7).
 
-See [`docs/completed-slices.md`](docs/completed-slices.md) for the full inventory.
+See [`docs/completed-slices.md`](docs/completed-slices.md) and [`docs/launch-readiness-report.md`](docs/launch-readiness-report.md).
 
 ## Scripts
 
@@ -32,14 +34,11 @@ npm run build
 npm run validate
 ```
 
-## Still required before real deal searching
+## Still required before commercial launch
 
-1. Approved commercial partnerships + sandbox/production credentials (server-side / env only)
-2. Live adapters registered behind the existing adapter contract
-3. Legal review of affiliate disclosures and brand usage
-4. Verified Travel Buddy Supabase project + apply in-repo migrations/RLS/storage (for cloud)
-5. Production deploy + monitoring
+1. Verified Travel Buddy Supabase project + migrations
+2. Approved live provider credentials + adapters
+3. Legal disclosure/brand review for live redirects
+4. Production deploy + monitoring
 
-## Integration direction
-
-Future phases add approved APIs for search, maps, flights, hotels, booking platforms, restaurants, tours, transfers, cruises, and AI assistance. The product must not pretend those integrations exist until they are implemented and verified.
+Do not fabricate partnerships, conversions, or traffic metrics.

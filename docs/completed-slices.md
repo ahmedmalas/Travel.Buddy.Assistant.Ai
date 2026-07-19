@@ -120,8 +120,11 @@ Backup schema version raised to **5** at merge (later raised to **6** with deal 
 
 ## Slices 73–88 (Super Deal Engine & Partner Platform)
 
-Implemented on branch `cursor/slices-73-88-deal-engine-03b5`.  
-Backup schema version raised to **6** (compatible with v2–v6 imports). Deal-engine state is persisted separately and included in trip backups.
+Merged via PR #15 onto `main`.  
+Verified merge commit: `ad69d63`  
+PR: https://github.com/ahmedmalas/Travel.Buddy.Assistant.Ai/pull/15
+
+Backup schema version raised to **6** at merge (later raised to **7** with finalisation). Deal-engine state is persisted separately and included in trip backups.
 
 | Slice | Capability |
 |------:|------------|
@@ -142,12 +145,33 @@ Backup schema version raised to **6** (compatible with v2–v6 imports). Deal-en
 | 87 | Growth/recommendation foundations (landings, referrals, savings reports) |
 | 88 | QA gates, load/ranking tests, docs (adapter/ranking/partnership/disclosure/checklist) |
 
+## Slices 89–100 (Finalisation)
+
+Implemented on branch `cursor/slices-89-100-finalisation-03b5`.  
+Backup schema version raised to **7** (compatible with v2–v7 imports).
+
+| Slice | Capability |
+|------:|------------|
+| 89 | Universal import engine (PDF text/email/ICS/CSV/backups) with confidence + review |
+| 90 | Intelligent trip validation / Trip Health Score |
+| 91 | Offline-first indicators, degraded mode, cache helpers, sync conflict summaries |
+| 92 | Performance: Vite manual chunks, virtual lists, debounce/filter helpers, benchmarks |
+| 93 | Accessibility audit checklist + live region helper |
+| 94 | Security hardening helpers + review checklist |
+| 95 | Privacy-respecting local analytics foundation |
+| 96 | Release centre: version, notes, flags, migration/compatibility reports |
+| 97 | Developer platform docs (architecture/data-flow/extension/testing/contribution) |
+| 98 | Operations dashboard (health, sync, imports, storage, perf, diagnostics) |
+| 99 | End-to-end regression anchors across Slices 9–99 |
+| 100 | Launch readiness + commercial/AI/OTA roadmap docs; debt cleanup |
+
 ## Architecture notes
 
 - Shared state via `TripStoreProvider` / `useSharedTripStore` (single `useTripStore` instance)
-- Domain model + migration in `src/store/tripDomain.ts` (backup version **6**)
+- Domain model + migration in `src/store/tripDomain.ts` (backup version **7**)
 - Travel ops domain in `src/store/travelOpsDomain.ts`; rule engine in `src/store/smartAssistance.ts`; onboarding in `src/store/onboarding.ts`
 - Deal engine in `src/deal-engine/` with store wiring for shortlist/prefs/alerts/attribution
+- Finalisation modules in `src/finalisation/` (import, health, offline, analytics, release, ops)
 - Vault domain in `src/store/vaultDomain.ts`; vault math in `src/store/vaultCalculations.ts`
 - Extracted constants in `src/store/storeConstants.ts`; module index in `src/store/modules/`
 - Repository contracts in `src/store/repositories/` (local provider default; Supabase provider when env configured)

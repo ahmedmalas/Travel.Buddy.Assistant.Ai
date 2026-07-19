@@ -32,6 +32,7 @@ export * as travelOpsDomain from '../travelOpsDomain';
 export * as smartAssistance from '../smartAssistance';
 export * as onboarding from '../onboarding';
 export * as dealEngine from '../../deal-engine';
+export * as finalisation from '../../finalisation';
 
 export {
   migrateVaultState,

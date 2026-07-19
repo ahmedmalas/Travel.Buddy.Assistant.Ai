@@ -204,6 +204,20 @@ import {
   type TravellerPreferenceProfile,
   type UniversalOffer,
 } from '../deal-engine';
+import {
+  applyNetworkChange,
+  attachConflictSummaries,
+  auditTripHealth,
+  loadFinalisationState,
+  persistFinalisationState,
+  selectedImportEntities,
+  setFeatureFlag,
+  trackEvent,
+  type AnalyticsEventName,
+  type FeatureFlagId,
+  type FinalisationState,
+  type ImportReviewDraft,
+} from '../finalisation';
 
 export type {
   Booking,
@@ -1345,6 +1359,7 @@ export function useTripStore() {
   const [cloudMigrationMessage, setCloudMigrationMessage] = useState<string | null>(null);
   const [onboardingState, setOnboardingState] = useState<OnboardingState>(() => loadOnboardingState());
   const [dealEngineState, setDealEngineState] = useState<DealEngineState>(() => loadDealEngineState());
+  const [finalisationState, setFinalisationState] = useState<FinalisationState>(() => loadFinalisationState());
   const repositories = useMemo(
     () => (isSupabaseConfigured() ? createSupabaseDataRepositories() : createLocalDataRepositories()),
     [],
@@ -1508,6 +1523,36 @@ export function useTripStore() {
   useEffect(() => {
     persistDealEngineState(dealEngineState);
   }, [dealEngineState]);
+  useEffect(() => {
+    persistFinalisationState(finalisationState);
+  }, [finalisationState]);
+  useEffect(() => {
+    const onOnline = () =>
+      setFinalisationState((current) => ({
+        ...current,
+        offline: applyNetworkChange(current.offline, 'online'),
+      }));
+    const onOffline = () =>
+      setFinalisationState((current) => ({
+        ...current,
+        offline: applyNetworkChange(current.offline, 'offline'),
+      }));
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+  useEffect(() => {
+    setFinalisationState((current) => ({
+      ...current,
+      offline: attachConflictSummaries(
+        current.offline,
+        syncState.conflicts.map((conflict) => conflict.message),
+      ),
+    }));
+  }, [syncState.conflicts]);
   useEffect(() => {
     setNotificationState((current) => {
       const next = buildNotificationsFromTrips(vault.trips, current);
@@ -2556,6 +2601,7 @@ export function useTripStore() {
     window.localStorage.removeItem(VAULT_STORAGE_KEY);
     window.localStorage.removeItem(TEMPLATE_STORAGE_KEY);
     window.localStorage.removeItem(STORAGE_KEYS.dealEngine);
+    window.localStorage.removeItem(STORAGE_KEYS.finalisation);
     setActiveTripParseStatus('missing');
     setSnapshotHistoryParseStatus('missing');
     setActiveTripCorruption(null);
@@ -2564,6 +2610,7 @@ export function useTripStore() {
     setSnapshotHistoryRawPayloadSize(0);
     setSnapshots([]);
     setDealEngineState(createEmptyDealEngineState());
+    setFinalisationState(loadFinalisationState());
     const resetVault = migrateVaultState(null, cloneTrip(seededTrip));
     setVault(resetVault);
     setTemplates(migrateTemplates(null));
@@ -5143,6 +5190,103 @@ export function useTripStore() {
     importDealEngineState: (raw: unknown) =>
       setDealEngineState(migrateDealEngineState(raw)),
     resetDealEngineState: () => setDealEngineState(createEmptyDealEngineState()),
+    finalisationState,
+    setPendingImportReview: (draft: ImportReviewDraft | null) =>
+      setFinalisationState((current) => ({ ...current, pendingImportReview: draft })),
+    commitImportReview: () => {
+      const draft = finalisationState.pendingImportReview;
+      if (!draft) return { ok: false as const, message: 'No pending import review.' };
+      const selected = selectedImportEntities(draft);
+      updateTrip((trip) => {
+        const nextBookings = [...trip.bookings];
+        for (const entity of selected) {
+          if (entity.kind === 'traveller') continue;
+          nextBookings.push({
+            id: crypto.randomUUID(),
+            type:
+              entity.kind === 'flight'
+                ? 'flight'
+                : entity.kind === 'accommodation'
+                  ? 'hotel'
+                  : entity.kind === 'ground_transport'
+                    ? 'transport'
+                    : entity.kind === 'activity'
+                      ? 'activity'
+                      : 'other',
+            title: entity.title,
+            provider: draft.sourceKind,
+            confirmationNumber: entity.confirmationNumber ?? '',
+            startDate: entity.startDate ?? '',
+            endDate: entity.endDate ?? entity.startDate ?? '',
+            startTime: entity.startTime ?? '',
+            endTime: entity.endTime ?? '',
+            location: entity.location ?? '',
+            cost: 0,
+            currency: trip.currency,
+            status: 'planned',
+            notes: `Imported via universal import (${entity.confidence}% confidence)`,
+            link: '',
+            attachmentName: draft.fileName,
+            attachmentMimeType: '',
+          });
+        }
+        const nextTravellers = [...trip.travellers];
+        for (const entity of selected.filter((item) => item.kind === 'traveller')) {
+          nextTravellers.push({
+            id: crypto.randomUUID(),
+            name: entity.title,
+            dateOfBirth: '',
+            nationality: '',
+            dietaryRequirements: '',
+            accessibilityNeeds: '',
+            emergencyContactName: '',
+            emergencyContactPhone: '',
+            loyaltyPrograms: '',
+            passportNumberLast4: '',
+            passportExpiry: '',
+            passportCountry: '',
+          });
+        }
+        return {
+          ...trip,
+          bookings: nextBookings,
+          travellers: nextTravellers,
+        };
+      }, { createSnapshot: true });
+      setFinalisationState((current) => ({
+        ...current,
+        pendingImportReview: null,
+        importHistory: [...current.importHistory, draft].slice(-50),
+        analytics: trackEvent(current.analytics, 'import_completed', {
+          saved: selected.length,
+          source: draft.sourceKind,
+        }),
+      }));
+      return { ok: true as const, message: `Saved ${selected.length} imported entit(y/ies).` };
+    },
+    runTripHealthAudit: () => {
+      const report = auditTripHealth(history.present);
+      setFinalisationState((current) => ({
+        ...current,
+        lastTripHealth: report,
+        analytics: trackEvent(current.analytics, 'feature_opened', { score: report.score }, 'trip-health'),
+      }));
+      return report;
+    },
+    trackAnalyticsEvent: (
+      name: AnalyticsEventName,
+      metadata?: Record<string, string | number | boolean | null>,
+      feature?: string,
+    ) =>
+      setFinalisationState((current) => ({
+        ...current,
+        analytics: trackEvent(current.analytics, name, metadata, feature),
+      })),
+    setFeatureFlagEnabled: (id: FeatureFlagId, enabled: boolean) =>
+      setFinalisationState((current) => ({
+        ...current,
+        featureFlags: setFeatureFlag(current.featureFlags, id, enabled),
+      })),
     authState,
     authProvider,
     emailVerified,

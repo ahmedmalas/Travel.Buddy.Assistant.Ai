@@ -31,6 +31,11 @@ export default defineConfig({
         'src/components/trip-platform/DealEnginePanel.tsx',
         'src/components/trip-platform/PartnerCentrePanel.tsx',
         'src/components/trip-platform/GrowthEnginePanel.tsx',
+        'src/components/trip-platform/UniversalImportPanel.tsx',
+        'src/components/trip-platform/TripHealthPanel.tsx',
+        'src/components/trip-platform/OpsDashboardPanel.tsx',
+        'src/components/trip-platform/ReleaseCentrePanel.tsx',
+        'src/components/trip-platform/shared/VirtualList.tsx',
         'src/components/ErrorBoundary.tsx',
       ],
       thresholds: {
