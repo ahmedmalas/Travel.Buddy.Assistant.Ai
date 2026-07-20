@@ -163,7 +163,7 @@ export function StaysPanel() {
       createdAt: new Date().toISOString(),
       alertEnabled: false,
     });
-    setFeedback('Hotel plan + saved search stored. Live availability is not connected.');
+    setFeedback('Hotel plan saved to this trip. Saved search stored. Live availability is not connected.');
   };
 
   const runProviderSearch = async () => {
