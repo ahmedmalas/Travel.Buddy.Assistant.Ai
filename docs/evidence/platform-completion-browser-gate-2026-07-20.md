@@ -1,8 +1,10 @@
 # Platform completion browser gate — 2026-07-20
 
 **Branch:** `cursor/aleya-platform-complete-e69b`  
-**SHA:** `1254ad7817864bc65fc8e6002ab22db091c81204`  
-**PR:** #23 (draft)
+**SHA tip:** `73d3566a2bbe68f8f42ef5649035064ea71ac11b` (gates verified at `1254ad7817864bc65fc8e6002ab22db091c81204`; tip adds this evidence doc only)  
+**PR:** #23 (draft)  
+**Preview tip:** https://travel-buddy-assistant-g8v5l7hjg-ahmedmalas-projects.vercel.app (`dpl_3Bo12YCtZyuhKJcowemSRqdad3Da`, READY)  
+**Branch alias:** https://travel-buddy-assistant-ai-git-cursor-fb6ce1-ahmedmalas-projects.vercel.app
 
 ## Automated gates
 
