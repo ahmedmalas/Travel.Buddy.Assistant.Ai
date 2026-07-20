@@ -11,6 +11,8 @@ import {
 import { mapTripBriefToDraftPlan } from '../../features/trip-brief/tripBrief.mapper';
 import { hasTripBriefErrors, validateTripBrief } from '../../features/trip-brief/tripBrief.validation';
 import { useSharedTripStore } from '../../store/TripStoreContext';
+import { DatePickerField, todayIso } from '../ui/DatePickerField';
+import { LocationAutocomplete } from '../ui/LocationAutocomplete';
 import { Field, Panel, PrimaryButton, SecondaryButton, StatusBanner, inputClassName } from './shared/ui';
 
 function toLabel(value: string): string {
@@ -24,7 +26,7 @@ export function TripBriefPanel() {
   const [plan, setPlan] = useState<DraftPlan | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), []);
+  const today = useMemo(() => todayIso(), []);
 
   const updateInterest = (interest: InterestTag, checked: boolean) => {
     setBrief((current) => ({
@@ -69,35 +71,37 @@ export function TripBriefPanel() {
       <div className="mt-5 grid gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           <Field label="Destination" htmlFor="brief-destination">
-            <input
+            <LocationAutocomplete
               id="brief-destination"
-              className={inputClassName}
+              mode="place"
               placeholder="e.g. Tokyo, Japan"
               value={brief.destination}
-              onChange={(e) => setBrief({ ...brief, destination: e.target.value })}
+              onChange={(value) => setBrief({ ...brief, destination: value })}
             />
             {errors.destination ? <span className="mt-1 block text-xs text-rose-300">{errors.destination}</span> : null}
           </Field>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Start date" htmlFor="brief-start">
-              <input
+              <DatePickerField
                 id="brief-start"
-                type="date"
-                min={today}
-                className={inputClassName}
                 value={brief.startDate}
-                onChange={(e) => setBrief({ ...brief, startDate: e.target.value })}
+                min={today}
+                onChange={(next) => {
+                  setBrief((current) => ({
+                    ...current,
+                    startDate: next,
+                    endDate: current.endDate && next && current.endDate < next ? next : current.endDate,
+                  }));
+                }}
               />
               {errors.startDate ? <span className="mt-1 block text-xs text-rose-300">{errors.startDate}</span> : null}
             </Field>
             <Field label="End date" htmlFor="brief-end">
-              <input
+              <DatePickerField
                 id="brief-end"
-                type="date"
-                min={brief.startDate || today}
-                className={inputClassName}
                 value={brief.endDate}
-                onChange={(e) => setBrief({ ...brief, endDate: e.target.value })}
+                min={brief.startDate || today}
+                onChange={(next) => setBrief({ ...brief, endDate: next })}
               />
               {errors.endDate ? <span className="mt-1 block text-xs text-rose-300">{errors.endDate}</span> : null}
             </Field>
