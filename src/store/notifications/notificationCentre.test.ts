@@ -40,6 +40,12 @@ describe('notificationCentre', () => {
           date: '2026-07-20',
           paid: false,
           notes: '',
+
+          deposit: 0,
+          refund: 0,
+          sharedTravellerIds: [],
+          exchangeRateToTrip: 1,
+          attachmentName: '',
         },
       ],
       bookings: [
@@ -78,6 +84,15 @@ describe('notificationCentre', () => {
           cost: 0,
           currency: 'USD',
           bookingReference: '',
+
+          locked: false,
+          travellerIds: [],
+          itemStatus: 'planned' as const,
+          latitude: '',
+          longitude: '',
+          supplierDetails: '',
+          reminderAt: '',
+          aiGenerated: false,
         },
         {
           id: 's2',
@@ -93,6 +108,15 @@ describe('notificationCentre', () => {
           cost: 0,
           currency: 'USD',
           bookingReference: '',
+
+          locked: false,
+          travellerIds: [],
+          itemStatus: 'planned' as const,
+          latitude: '',
+          longitude: '',
+          supplierDetails: '',
+          reminderAt: '',
+          aiGenerated: false,
         },
       ],
       packingLists: [
