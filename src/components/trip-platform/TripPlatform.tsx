@@ -126,6 +126,15 @@ const ConciergePlanPanel = lazy(() =>
 const ProviderIntegrationPanel = lazy(() =>
   import('./ProviderIntegrationPanel').then((module) => ({ default: module.ProviderIntegrationPanel })),
 );
+const AiPlanningPanel = lazy(() =>
+  import('./AiPlanningPanel').then((module) => ({ default: module.AiPlanningPanel })),
+);
+const SupportCentrePanel = lazy(() =>
+  import('./SupportCentrePanel').then((module) => ({ default: module.SupportCentrePanel })),
+);
+const AdminOpsPanel = lazy(() =>
+  import('./AdminOpsPanel').then((module) => ({ default: module.AdminOpsPanel })),
+);
 
 const NAV_GROUPS = [
   {
@@ -136,6 +145,7 @@ const NAV_GROUPS = [
       { id: 'onboarding', label: 'Onboarding' },
       { id: 'trip-brief', label: 'Trip brief' },
       { id: 'assistance', label: 'AI Concierge' },
+      { id: 'ai-planning', label: 'AI Planning' },
       { id: 'concierge-plan', label: 'Concierge Plan' },
       { id: 'notifications', label: 'Notifications' },
     ],
@@ -208,6 +218,8 @@ const NAV_GROUPS = [
       { id: 'account', label: 'Account' },
       { id: 'import', label: 'Import' },
       { id: 'ops', label: 'Operations' },
+      { id: 'admin', label: 'Admin' },
+      { id: 'support', label: 'Help & support' },
       { id: 'release', label: 'Release' },
       { id: 'system', label: 'Backup & integrity' },
     ],
@@ -288,6 +300,7 @@ function TripPlatformInner() {
     onboarding: OnboardingPanel,
     'trip-brief': TripBriefPanel,
     assistance: AssistancePanel,
+    'ai-planning': AiPlanningPanel,
     'concierge-plan': ConciergePlanPanel,
     vault: TripVaultPanel,
     setup: TripSetupForm,
@@ -323,6 +336,8 @@ function TripPlatformInner() {
     account: AccountSettingsPanel,
     import: ImportMigrationPanel,
     ops: OpsDashboardPanel,
+    admin: AdminOpsPanel,
+    support: SupportCentrePanel,
     release: ReleaseCentrePanel,
     system: () => (
       <div className="rounded-3xl border border-white/10 bg-white/[0.02] p-2 md:p-4">
