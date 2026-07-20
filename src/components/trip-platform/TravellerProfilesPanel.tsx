@@ -68,7 +68,7 @@ export function TravellerProfilesPanel() {
     >
       {feedback ? <StatusBanner kind="info" message={feedback} /> : null}
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-        <Field label="Legal name" htmlFor="traveller-name">
+        <Field label="Name" htmlFor="traveller-name">
           <input id="traveller-name" className={inputClassName} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
         </Field>
         <Field label="Preferred name" htmlFor="traveller-preferred">
@@ -199,7 +199,7 @@ export function TravellerProfilesPanel() {
       <section className="mt-4 rounded-2xl border border-white/10 bg-slate-950/40 p-4">
         <h3 className="text-sm font-semibold text-white">Companions / family profiles</h3>
         <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Field label="Name" htmlFor="companion-name">
+          <Field label="Companion name" htmlFor="companion-name">
             <input id="companion-name" className={inputClassName} value={companionDraft.name} onChange={(e) => setCompanionDraft({ ...companionDraft, name: e.target.value })} />
           </Field>
           <Field label="Relationship" htmlFor="companion-rel">

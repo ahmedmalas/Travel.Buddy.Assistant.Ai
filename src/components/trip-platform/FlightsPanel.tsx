@@ -47,20 +47,51 @@ const createFlight = (currency: string): FlightSegment => ({
 });
 
 export function FlightsPanel() {
-  const { activeVaultTrip, upsertFlight, deleteFlight, canEditTrip } = useSharedTripStore();
+  const {
+    activeVaultTrip,
+    upsertFlight,
+    deleteFlight,
+    canEditTrip,
+    upsertSavedSearch,
+    deleteSavedSearch,
+    addStop,
+  } = useSharedTripStore();
   const flights = activeVaultTrip.flights ?? [];
   const travellers = activeVaultTrip.travellers ?? [];
+  const savedFlightSearches = (activeVaultTrip.savedSearches ?? []).filter((entry) => entry.kind === 'flight');
   const [draft, setDraft] = useState<FlightSegment>(createFlight(activeVaultTrip.currency));
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [tripType, setTripType] = useState<'one-way' | 'return' | 'multi-city'>('return');
   const [planOrigin, setPlanOrigin] = useState('');
   const [planDestination, setPlanDestination] = useState('');
   const [planDepart, setPlanDepart] = useState('');
   const [planReturn, setPlanReturn] = useState('');
-  const [planTravellers, setPlanTravellers] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
+  const [multiCityLegs, setMultiCityLegs] = useState([
+    { origin: '', destination: '', date: '' },
+    { origin: '', destination: '', date: '' },
+  ]);
+  const [adults, setAdults] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
+  const [children, setChildren] = useState(0);
+  const [infants, setInfants] = useState(0);
   const [planCabin, setPlanCabin] = useState('Economy');
+  const [directOnly, setDirectOnly] = useState(false);
+  const [maxStops, setMaxStops] = useState(2);
+  const [preferredAirlines, setPreferredAirlines] = useState('');
+  const [excludedAirlines, setExcludedAirlines] = useState('');
+  const [baggagePref, setBaggagePref] = useState('');
+  const [departTimePref, setDepartTimePref] = useState('any');
+  const [arriveTimePref, setArriveTimePref] = useState('any');
+  const [maxDurationHours, setMaxDurationHours] = useState(24);
+  const [budget, setBudget] = useState(0);
+  const [nearbyAirports, setNearbyAirports] = useState(true);
+  const [flexibleDates, setFlexibleDates] = useState(false);
+  const [fareAlert, setFareAlert] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
   const [providerOffers, setProviderOffers] = useState<FlightOffer[]>([]);
   const [providerBusy, setProviderBusy] = useState(false);
   const [providerWarning, setProviderWarning] = useState<string | null>(null);
+
+  const planTravellers = adults + children + infants;
 
   const toggleTraveller = (travellerId: string) => {
     setDraft((current) => ({
@@ -89,12 +120,54 @@ export function FlightsPanel() {
     return trimmed;
   };
 
+  const buildSearchNotes = () =>
+    [
+      `Trip type: ${tripType}`,
+      `Passengers: ${adults} adult(s), ${children} child(ren), ${infants} infant(s)`,
+      `Cabin ${planCabin}`,
+      directOnly ? 'Direct only' : `Max stops ${maxStops}`,
+      flexibleDates ? 'Flexible dates' : null,
+      nearbyAirports ? 'Nearby airports OK' : null,
+      preferredAirlines ? `Preferred airlines: ${preferredAirlines}` : null,
+      excludedAirlines ? `Excluded airlines: ${excludedAirlines}` : null,
+      baggagePref ? `Baggage: ${baggagePref}` : null,
+      `Depart time pref: ${departTimePref}`,
+      `Arrive time pref: ${arriveTimePref}`,
+      `Max journey ${maxDurationHours}h`,
+      budget > 0 ? `Budget ${budget} ${activeVaultTrip.currency}` : null,
+      'Live inventory not connected — planning / mock offers only.',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
   const saveFlightPlan = () => {
+    if (tripType === 'multi-city') {
+      const incomplete = multiCityLegs.some((leg) => !leg.origin.trim() || !leg.destination.trim());
+      if (incomplete) {
+        setFeedback('Each multi-city leg needs origin and destination.');
+        return;
+      }
+      multiCityLegs.forEach((leg, index) => {
+        upsertFlight({
+          ...createFlight(activeVaultTrip.currency),
+          departureAirport: extractAirportToken(leg.origin),
+          arrivalAirport: extractAirportToken(leg.destination),
+          departureDate: leg.date,
+          arrivalDate: leg.date,
+          cabin: planCabin,
+          notes: `Multi-city leg ${index + 1}. ${buildSearchNotes()}`,
+          airline: 'Planned search',
+          flightNumber: `PLAN-MC${index + 1}`,
+        });
+      });
+      setFeedback('Multi-city flight plan saved. Mock/planning only — not a booking.');
+      return;
+    }
     if (!planOrigin.trim() || !planDestination.trim()) {
       setFeedback('Origin and destination are required for a flight plan.');
       return;
     }
-    if (planReturn && planDepart && planReturn < planDepart) {
+    if (tripType === 'return' && planReturn && planDepart && planReturn < planDepart) {
       setFeedback('Return date cannot be before departure date.');
       return;
     }
@@ -103,9 +176,9 @@ export function FlightsPanel() {
       departureAirport: extractAirportToken(planOrigin),
       arrivalAirport: extractAirportToken(planDestination),
       departureDate: planDepart,
-      arrivalDate: planReturn || planDepart,
+      arrivalDate: tripType === 'return' ? planReturn || planDepart : planDepart,
       cabin: planCabin,
-      notes: `Flight search plan · ${planOrigin} → ${planDestination} · ${planTravellers} traveller(s) · cabin ${planCabin}. Live inventory not connected — planning request only.`,
+      notes: `${planOrigin} → ${planDestination}. ${buildSearchNotes()}`,
       airline: 'Planned search',
       flightNumber: 'PLAN',
     };
@@ -114,8 +187,45 @@ export function FlightsPanel() {
     setFeedback('Flight plan saved to this trip. Live fares are not connected — organise booking details when ready.');
   };
 
+  const saveCurrentSearch = () => {
+    upsertSavedSearch({
+      id: crypto.randomUUID(),
+      kind: 'flight',
+      label:
+        tripType === 'multi-city'
+          ? `Multi-city (${multiCityLegs.length} legs)`
+          : `${planOrigin || '?'} → ${planDestination || '?'}`,
+      query: {
+        tripType,
+        origin: planOrigin,
+        destination: planDestination,
+        depart: planDepart,
+        returnDate: planReturn,
+        adults,
+        children,
+        infants,
+        cabin: planCabin,
+        directOnly,
+        maxStops,
+        preferredAirlines,
+        excludedAirlines,
+        baggagePref,
+        departTimePref,
+        arriveTimePref,
+        maxDurationHours,
+        budget,
+        nearbyAirports,
+        flexibleDates,
+        multiCity: JSON.stringify(multiCityLegs),
+      },
+      createdAt: new Date().toISOString(),
+      alertEnabled: fareAlert,
+    });
+    setFeedback(fareAlert ? 'Search saved with fare-alert flag (architecture only — no paid alert service).' : 'Search saved.');
+  };
+
   const runProviderSearch = async () => {
-    if (!planOrigin.trim() || !planDestination.trim() || !planDepart) {
+    if (tripType !== 'multi-city' && (!planOrigin.trim() || !planDestination.trim() || !planDepart)) {
       setFeedback('Origin, destination, and departure date are required for provider search.');
       return;
     }
@@ -123,26 +233,79 @@ export function FlightsPanel() {
     setProviderWarning(null);
     try {
       const result = await searchFlights({
-        origin: planOrigin,
-        destination: planDestination,
-        departDate: planDepart,
-        returnDate: planReturn || undefined,
+        origin: tripType === 'multi-city' ? multiCityLegs[0]?.origin || planOrigin : planOrigin,
+        destination: tripType === 'multi-city' ? multiCityLegs[0]?.destination || planDestination : planDestination,
+        departDate: tripType === 'multi-city' ? multiCityLegs[0]?.date || planDepart : planDepart,
+        returnDate: tripType === 'return' ? planReturn || undefined : undefined,
         travellers: planTravellers,
         cabin: planCabin.toLowerCase().replace(/\s+/g, '_'),
         currency: activeVaultTrip.currency,
       });
-      setProviderOffers(result.offers);
-      setProviderWarning(result.warnings[0] ?? null);
+      const filtered = result.offers.filter((offer) => {
+        if (directOnly && (offer.stops ?? 0) > 0) return false;
+        if ((offer.stops ?? 0) > maxStops) return false;
+        if (budget > 0 && offer.fare.amount > budget) return false;
+        if (excludedAirlines) {
+          const banned = excludedAirlines.split(',').map((entry) => entry.trim().toLowerCase()).filter(Boolean);
+          if (banned.some((airline) => offer.airline.toLowerCase().includes(airline))) return false;
+        }
+        return true;
+      });
+      setProviderOffers(filtered);
+      setProviderWarning(
+        [
+          result.warnings[0],
+          'Mock provider results — not live inventory.',
+          fareAlert ? 'Fare alerts are architectural only until a notification vendor is connected.' : null,
+        ]
+          .filter(Boolean)
+          .join(' '),
+      );
       setFeedback(
-        result.offers.length
-          ? `Provider gateway returned ${result.offers.length} mock flight offer(s) from enabled suppliers.`
-          : 'No flight offers from enabled providers.',
+        filtered.length
+          ? `Provider gateway returned ${filtered.length} mock flight offer(s) (filtered preferences applied).`
+          : 'No flight offers matched filters from enabled mock providers.',
       );
     } catch (error) {
       setFeedback(error instanceof Error ? error.message : 'Provider search failed');
     } finally {
       setProviderBusy(false);
     }
+  };
+
+  const addOfferToItinerary = (offer: FlightOffer) => {
+    if (!canEditTrip) return;
+    const segment: FlightSegment = {
+      ...createFlight(activeVaultTrip.currency),
+      airline: offer.airline,
+      flightNumber: offer.flightNumber,
+      departureAirport: offer.departure.airport.code ?? offer.departure.airport.name,
+      arrivalAirport: offer.arrival.airport.code ?? offer.arrival.airport.name,
+      departureDate: offer.departure.at.slice(0, 10),
+      departureTime: offer.departure.at.slice(11, 16),
+      arrivalDate: offer.arrival.at.slice(0, 10),
+      arrivalTime: offer.arrival.at.slice(11, 16),
+      cabin: offer.cabin ?? planCabin,
+      cost: offer.fare.amount,
+      currency: offer.fare.currency,
+      bookingReference: '',
+      notes: `Selected mock offer from ${offer.providerId}. Not a live booking. Change/cancel status: planned.`,
+      statusNotes: 'planned',
+    };
+    upsertFlight(segment);
+    addStop({
+      title: `${offer.airline} ${offer.flightNumber}`,
+      category: 'travel',
+      date: segment.departureDate,
+      startTime: segment.departureTime,
+      endTime: segment.arrivalTime,
+      location: `${segment.departureAirport} → ${segment.arrivalAirport}`,
+      cost: segment.cost,
+      currency: segment.currency,
+      notes: segment.notes,
+      supplierDetails: offer.providerId,
+    });
+    setFeedback('Mock offer saved to flights + itinerary with booking-reference placeholder.');
   };
 
   return (
@@ -160,67 +323,114 @@ export function FlightsPanel() {
           Autocomplete airports as you type. Choose dates from the calendar. Save the plan to your trip — this does not book tickets.
         </p>
         <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Origin" htmlFor="flight-plan-origin">
-            <LocationAutocomplete
-              id="flight-plan-origin"
-              mode="flight"
-              value={planOrigin}
-              placeholder="City or airport (e.g. Sydney, SYD)"
-              onChange={(value) => setPlanOrigin(value)}
-            />
-          </Field>
-          <Field label="Destination" htmlFor="flight-plan-destination">
-            <LocationAutocomplete
-              id="flight-plan-destination"
-              mode="flight"
-              value={planDestination}
-              placeholder="City or airport (e.g. Tokyo, NRT)"
-              onChange={(value) => setPlanDestination(value)}
-            />
-          </Field>
-          <Field label="Travellers" htmlFor="flight-plan-travellers">
-            <input
-              id="flight-plan-travellers"
-              type="number"
-              min={1}
+          <Field label="Trip type" htmlFor="flight-trip-type">
+            <select
+              id="flight-trip-type"
               className={inputClassName}
-              value={planTravellers}
-              onChange={(e) => setPlanTravellers(Math.max(1, Number(e.target.value) || 1))}
-            />
+              value={tripType}
+              onChange={(e) => setTripType(e.target.value as typeof tripType)}
+            >
+              <option value="one-way">One-way</option>
+              <option value="return">Return</option>
+              <option value="multi-city">Multi-city</option>
+            </select>
           </Field>
-          <Field label="Departure date" htmlFor="flight-plan-depart">
-            <DatePickerField
-              id="flight-plan-depart"
-              value={planDepart}
-              min={todayIso()}
-              onChange={(next) => {
-                setPlanDepart(next);
-                if (planReturn && next && planReturn < next) setPlanReturn(next);
-              }}
-            />
+          <Field label="Adults" htmlFor="flight-adults">
+            <input id="flight-adults" type="number" min={1} className={inputClassName} value={adults} onChange={(e) => setAdults(Math.max(1, Number(e.target.value) || 1))} />
           </Field>
-          <Field label="Return date" htmlFor="flight-plan-return">
-            <DatePickerField
-              id="flight-plan-return"
-              value={planReturn}
-              min={planDepart || todayIso()}
-              onChange={setPlanReturn}
-            />
+          <Field label="Children" htmlFor="flight-children">
+            <input id="flight-children" type="number" min={0} className={inputClassName} value={children} onChange={(e) => setChildren(Math.max(0, Number(e.target.value) || 0))} />
+          </Field>
+          <Field label="Infants" htmlFor="flight-infants">
+            <input id="flight-infants" type="number" min={0} className={inputClassName} value={infants} onChange={(e) => setInfants(Math.max(0, Number(e.target.value) || 0))} />
           </Field>
           <Field label="Cabin class" htmlFor="flight-plan-cabin">
-            <select
-              id="flight-plan-cabin"
-              className={inputClassName}
-              value={planCabin}
-              onChange={(e) => setPlanCabin(e.target.value)}
-            >
+            <select id="flight-plan-cabin" className={inputClassName} value={planCabin} onChange={(e) => setPlanCabin(e.target.value)}>
               {['Economy', 'Premium economy', 'Business', 'First'].map((cabin) => (
-                <option key={cabin} value={cabin}>
-                  {cabin}
-                </option>
+                <option key={cabin} value={cabin}>{cabin}</option>
               ))}
             </select>
           </Field>
+          <Field label="Max stops" htmlFor="flight-max-stops">
+            <input id="flight-max-stops" type="number" min={0} max={3} className={inputClassName} value={maxStops} onChange={(e) => setMaxStops(Math.max(0, Number(e.target.value) || 0))} />
+          </Field>
+          {tripType !== 'multi-city' ? (
+            <>
+              <Field label="Origin" htmlFor="flight-plan-origin">
+                <LocationAutocomplete id="flight-plan-origin" mode="flight" value={planOrigin} placeholder="City or airport (e.g. Sydney, SYD)" onChange={setPlanOrigin} />
+              </Field>
+              <Field label="Destination" htmlFor="flight-plan-destination">
+                <LocationAutocomplete id="flight-plan-destination" mode="flight" value={planDestination} placeholder="City or airport (e.g. Tokyo, NRT)" onChange={setPlanDestination} />
+              </Field>
+              <Field label="Departure date" htmlFor="flight-plan-depart">
+                <DatePickerField
+                  id="flight-plan-depart"
+                  value={planDepart}
+                  min={todayIso()}
+                  onChange={(next) => {
+                    setPlanDepart(next);
+                    if (planReturn && next && planReturn < next) setPlanReturn(next);
+                  }}
+                />
+              </Field>
+              {tripType === 'return' ? (
+                <Field label="Return date" htmlFor="flight-plan-return">
+                  <DatePickerField id="flight-plan-return" value={planReturn} min={planDepart || todayIso()} onChange={setPlanReturn} />
+                </Field>
+              ) : null}
+            </>
+          ) : (
+            multiCityLegs.map((leg, index) => (
+              <div key={`leg-${index}`} className="xl:col-span-3 grid gap-3 md:grid-cols-3 rounded-xl border border-white/10 p-3">
+                <Field label={`Leg ${index + 1} origin`} htmlFor={`mc-origin-${index}`}>
+                  <LocationAutocomplete id={`mc-origin-${index}`} mode="flight" value={leg.origin} onChange={(value) => setMultiCityLegs((current) => current.map((entry, i) => (i === index ? { ...entry, origin: value } : entry)))} />
+                </Field>
+                <Field label={`Leg ${index + 1} destination`} htmlFor={`mc-dest-${index}`}>
+                  <LocationAutocomplete id={`mc-dest-${index}`} mode="flight" value={leg.destination} onChange={(value) => setMultiCityLegs((current) => current.map((entry, i) => (i === index ? { ...entry, destination: value } : entry)))} />
+                </Field>
+                <Field label={`Leg ${index + 1} date`} htmlFor={`mc-date-${index}`}>
+                  <DatePickerField id={`mc-date-${index}`} value={leg.date} min={todayIso()} onChange={(value) => setMultiCityLegs((current) => current.map((entry, i) => (i === index ? { ...entry, date: value } : entry)))} />
+                </Field>
+              </div>
+            ))
+          )}
+          <Field label="Preferred airlines" htmlFor="flight-preferred">
+            <input id="flight-preferred" className={inputClassName} value={preferredAirlines} onChange={(e) => setPreferredAirlines(e.target.value)} placeholder="QF, VA" />
+          </Field>
+          <Field label="Excluded airlines" htmlFor="flight-excluded">
+            <input id="flight-excluded" className={inputClassName} value={excludedAirlines} onChange={(e) => setExcludedAirlines(e.target.value)} />
+          </Field>
+          <Field label="Baggage preference" htmlFor="flight-baggage">
+            <input id="flight-baggage" className={inputClassName} value={baggagePref} onChange={(e) => setBaggagePref(e.target.value)} />
+          </Field>
+          <Field label="Departure time preference" htmlFor="flight-dep-pref">
+            <select id="flight-dep-pref" className={inputClassName} value={departTimePref} onChange={(e) => setDepartTimePref(e.target.value)}>
+              <option value="any">Any</option>
+              <option value="morning">Morning</option>
+              <option value="afternoon">Afternoon</option>
+              <option value="evening">Evening</option>
+            </select>
+          </Field>
+          <Field label="Arrival time preference" htmlFor="flight-arr-pref">
+            <select id="flight-arr-pref" className={inputClassName} value={arriveTimePref} onChange={(e) => setArriveTimePref(e.target.value)}>
+              <option value="any">Any</option>
+              <option value="morning">Morning</option>
+              <option value="afternoon">Afternoon</option>
+              <option value="evening">Evening</option>
+            </select>
+          </Field>
+          <Field label="Max journey duration (hours)" htmlFor="flight-max-duration">
+            <input id="flight-max-duration" type="number" min={1} className={inputClassName} value={maxDurationHours} onChange={(e) => setMaxDurationHours(Math.max(1, Number(e.target.value) || 1))} />
+          </Field>
+          <Field label="Budget" htmlFor="flight-budget">
+            <input id="flight-budget" type="number" min={0} className={inputClassName} value={budget} onChange={(e) => setBudget(Math.max(0, Number(e.target.value) || 0))} />
+          </Field>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-4 text-sm text-slate-200">
+          <label className="flex items-center gap-2"><input type="checkbox" checked={directOnly} onChange={(e) => setDirectOnly(e.target.checked)} /> Direct flights</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={flexibleDates} onChange={(e) => setFlexibleDates(e.target.checked)} /> Flexible dates</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={nearbyAirports} onChange={(e) => setNearbyAirports(e.target.checked)} /> Nearby airports</label>
+          <label className="flex items-center gap-2"><input type="checkbox" checked={fareAlert} onChange={(e) => setFareAlert(e.target.checked)} /> Fare alert (architecture)</label>
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <PrimaryButton type="button" disabled={providerBusy} onClick={() => void runProviderSearch()}>
@@ -229,25 +439,71 @@ export function FlightsPanel() {
           <SecondaryButton type="button" disabled={!canEditTrip} onClick={saveFlightPlan}>
             Save flight plan to trip
           </SecondaryButton>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={saveCurrentSearch}>
+            Save search
+          </SecondaryButton>
+          {tripType === 'multi-city' ? (
+            <SecondaryButton type="button" onClick={() => setMultiCityLegs((current) => [...current, { origin: '', destination: '', date: '' }])}>
+              Add leg
+            </SecondaryButton>
+          ) : null}
         </div>
+        {savedFlightSearches.length > 0 ? (
+          <ul className="mt-3 space-y-1 text-xs text-slate-300">
+            {savedFlightSearches.map((search) => (
+              <li key={search.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 px-2 py-1">
+                <span>
+                  {search.label} {search.alertEnabled ? '· alert on' : ''}
+                </span>
+                <SecondaryButton type="button" onClick={() => deleteSavedSearch(search.id)}>
+                  Remove
+                </SecondaryButton>
+              </li>
+            ))}
+          </ul>
+        ) : null}
         {providerWarning ? <p className="mt-3 text-xs text-amber-200">{providerWarning}</p> : null}
         {providerOffers.length > 0 ? (
           <ul className="mt-3 space-y-2" aria-label="Flight provider offers">
             {providerOffers.map((offer) => (
               <li key={offer.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200">
-                <span className="font-medium text-white">
-                  {offer.airline} {offer.flightNumber}
-                </span>
-                {' · '}
-                {offer.departure.airport.code ?? offer.departure.airport.name} →{' '}
-                {offer.arrival.airport.code ?? offer.arrival.airport.name}
-                {' · '}
-                {offer.fare.currency} {offer.fare.amount}
-                {' · '}
-                <StatusBadge label={`${offer.providerId} · mock`} tone="warning" />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="font-medium text-white">
+                      {offer.airline} {offer.flightNumber}
+                    </span>
+                    {' · '}
+                    {offer.departure.airport.code ?? offer.departure.airport.name} →{' '}
+                    {offer.arrival.airport.code ?? offer.arrival.airport.name}
+                    {' · '}
+                    {offer.fare.currency} {offer.fare.amount}
+                    {' · '}
+                    <StatusBadge label={`${offer.providerId} · mock`} tone="warning" />
+                  </div>
+                  <div className="flex gap-2">
+                    <SecondaryButton
+                      type="button"
+                      onClick={() =>
+                        setCompareIds((current) =>
+                          current.includes(offer.id) ? current.filter((id) => id !== offer.id) : [...current, offer.id].slice(0, 4),
+                        )
+                      }
+                    >
+                      {compareIds.includes(offer.id) ? 'In compare' : 'Compare'}
+                    </SecondaryButton>
+                    <PrimaryButton type="button" disabled={!canEditTrip} onClick={() => addOfferToItinerary(offer)}>
+                      Select mock offer
+                    </PrimaryButton>
+                  </div>
+                </div>
               </li>
             ))}
           </ul>
+        ) : null}
+        {compareIds.length > 1 ? (
+          <p className="mt-2 text-xs text-sky-200">
+            Comparing {compareIds.length} mock offers: {providerOffers.filter((offer) => compareIds.includes(offer.id)).map((offer) => `${offer.airline} ${offer.flightNumber} (${offer.fare.amount})`).join(' vs ')}
+          </p>
         ) : null}
       </div>
 

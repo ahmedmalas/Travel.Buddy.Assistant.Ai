@@ -178,8 +178,8 @@ export function BudgetTracker() {
           Paid
         </label>
         <div className="md:col-span-2 xl:col-span-3">
-          <Field label="Notes / payment notes" htmlFor="expense-notes">
-            <textarea id="expense-notes" rows={2} className={inputClassName} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} />
+          <Field label="Notes" htmlFor="expense-notes">
+            <textarea id="expense-notes" rows={2} className={inputClassName} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Payment notes, receipts, split context…" />
           </Field>
         </div>
       </div>

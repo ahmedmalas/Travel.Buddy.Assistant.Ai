@@ -19,8 +19,8 @@ describe('Travel ops panels smoke', () => {
     expect(await screen.findByText(/Kyoto/i)).toBeTruthy();
 
     goTo('flights');
-    fireEvent.change(await screen.findByLabelText(/Airline/i), { target: { value: 'JAL' } });
-    fireEvent.change(screen.getByLabelText(/Flight number/i), { target: { value: 'JL123' } });
+    fireEvent.change(await screen.findByLabelText(/^Airline$/i), { target: { value: 'JAL' } });
+    fireEvent.change(screen.getByLabelText(/^Flight number$/i), { target: { value: 'JL123' } });
     fireEvent.click(screen.getByRole('button', { name: /^Save flight$/i }));
     expect(await screen.findByText(/JL123|JAL/i)).toBeTruthy();
 

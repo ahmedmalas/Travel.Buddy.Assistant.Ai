@@ -19,9 +19,12 @@ export type TravelServiceId =
   | 'airport-transfers'
   | 'private-hire'
   | 'chauffeur'
+  | 'limousine'
   | 'off-roading'
   | 'adventure'
   | 'restaurants'
+  | 'wellness'
+  | 'theme-parks'
   | 'nearby'
   | 'things-nearby'
   | 'shopping-nearby'
@@ -29,13 +32,21 @@ export type TravelServiceId =
   | 'family'
   | 'nightlife'
   | 'events'
+  | 'local-guides'
   | 'local-transport'
   | 'trains'
   | 'buses'
   | 'ferries'
   | 'insurance'
   | 'visa'
+  | 'vaccinations'
+  | 'sim-esim'
   | 'currency-budget'
+  | 'luggage'
+  | 'airport-lounges'
+  | 'parking'
+  | 'accessibility-services'
+  | 'pet-travel'
   | 'weather'
   | 'packing'
   | 'booking-organiser'
@@ -46,7 +57,8 @@ export type TravelServiceId =
   | 'budget-intelligence'
   | 'personal-recommendations'
   | 'trip-questions'
-  | 'confirmations';
+  | 'confirmations'
+  | 'ai-planning';
 
 export type TravelServiceItem = {
   id: TravelServiceId;
@@ -248,6 +260,27 @@ export const TRAVEL_SERVICE_GROUPS: TravelServiceGroup[] = [
         availability: 'Planning and recommendation tool',
         tabId: 'services',
       },
+      {
+        id: 'wellness',
+        title: 'Wellness and spas',
+        description: 'Plan spa, wellness, and recovery blocks.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
+      {
+        id: 'theme-parks',
+        title: 'Theme parks',
+        description: 'Theme-park days, tickets, and timing notes.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
+      {
+        id: 'local-guides',
+        title: 'Local guides',
+        description: 'Private guide preferences and booking placeholders.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
     ],
   },
   {
@@ -300,6 +333,20 @@ export const TRAVEL_SERVICE_GROUPS: TravelServiceGroup[] = [
         id: 'chauffeur',
         title: 'Chauffeur Services',
         description: 'Private chauffeur planning details.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'transport',
+      },
+      {
+        id: 'limousine',
+        title: 'Limousine services',
+        description: 'Plan limousine transfers and special-occasion transport.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'transport',
+      },
+      {
+        id: 'parking',
+        title: 'Airport parking',
+        description: 'Capture parking location, dates, and booking placeholders.',
         availability: 'Planning and recommendation tool',
         tabId: 'transport',
       },
@@ -358,6 +405,48 @@ export const TRAVEL_SERVICE_GROUPS: TravelServiceGroup[] = [
         availability: 'Available now',
         tabId: 'budget',
       },
+      {
+        id: 'vaccinations',
+        title: 'Vaccinations and health preparation',
+        description: 'Health prep notes and vaccination reminders (not medical advice).',
+        availability: 'Planning and recommendation tool',
+        tabId: 'checklist',
+      },
+      {
+        id: 'sim-esim',
+        title: 'SIM and eSIM planning',
+        description: 'Connectivity planning and provider placeholders.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
+      {
+        id: 'luggage',
+        title: 'Luggage services',
+        description: 'Luggage storage, shipping, and allowance notes.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
+      {
+        id: 'airport-lounges',
+        title: 'Airport lounges',
+        description: 'Lounge access planning and membership notes.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
+      {
+        id: 'accessibility-services',
+        title: 'Accessibility services',
+        description: 'Assistance requests, step-free transfer notes, and support contacts.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'travellers',
+      },
+      {
+        id: 'pet-travel',
+        title: 'Pet travel',
+        description: 'Pet documentation, cabin/hold preferences, and airline rules placeholders.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'services',
+      },
     ],
   },
   {
@@ -377,6 +466,13 @@ export const TRAVEL_SERVICE_GROUPS: TravelServiceGroup[] = [
         description: 'Ask structured trip questions and save recommendations into your itinerary.',
         availability: 'Planning and recommendation tool',
         tabId: 'concierge-plan',
+      },
+      {
+        id: 'ai-planning',
+        title: 'AI travel planning',
+        description: 'Generate mock AI itineraries, versions, and locked-item-aware revisions.',
+        availability: 'Planning and recommendation tool',
+        tabId: 'ai-planning',
       },
       {
         id: 'personal-recommendations',
