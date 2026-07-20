@@ -7,6 +7,8 @@ import {
   type PaymentStatus,
   type StayType,
 } from '../../store/travelOpsDomain';
+import { DatePickerField, todayIso } from '../ui/DatePickerField';
+import { LocationAutocomplete } from '../ui/LocationAutocomplete';
 import {
   EmptyState,
   Field,
@@ -46,6 +48,12 @@ export function StaysPanel() {
   const travellers = activeVaultTrip.travellers ?? [];
   const [draft, setDraft] = useState<AccommodationStay>(createStay(activeVaultTrip.currency));
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [planDestination, setPlanDestination] = useState(activeVaultTrip.destination || '');
+  const [planCheckIn, setPlanCheckIn] = useState('');
+  const [planCheckOut, setPlanCheckOut] = useState('');
+  const [planGuests, setPlanGuests] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
+  const [planRooms, setPlanRooms] = useState(1);
+  const [planPrefs, setPlanPrefs] = useState('');
 
   const toggleTraveller = (travellerId: string) => {
     setDraft((current) => ({
@@ -69,9 +77,109 @@ export function StaysPanel() {
     setFeedback('Stay saved.');
   };
 
+  const saveHotelPlan = () => {
+    if (!planDestination.trim()) {
+      setFeedback('Destination is required for a hotel plan.');
+      return;
+    }
+    if (planCheckOut && planCheckIn && planCheckOut < planCheckIn) {
+      setFeedback('Check-out cannot be before check-in.');
+      return;
+    }
+    const planned: AccommodationStay = {
+      ...createStay(activeVaultTrip.currency),
+      name: `Hotel plan · ${planDestination}`,
+      address: planDestination,
+      checkInDate: planCheckIn,
+      checkOutDate: planCheckOut || planCheckIn,
+      roomInfo: `${planRooms} room(s) · ${planGuests} guest(s)`,
+      amenities: planPrefs,
+      notes: `Hotel search plan. Preferences: ${planPrefs || 'none'}. Live inventory not connected — planning request only.`,
+      paymentStatus: 'unpaid',
+    };
+    upsertStay(planned);
+    setDraft(planned);
+    setFeedback('Hotel plan saved to this trip. Live availability is not connected.');
+  };
+
   return (
-    <Panel title="Accommodation stays" description="Hotels, apartments, and other stays with check-in details, costs, and optional itinerary links.">
+    <Panel
+      title="Hotels"
+      description="Plan accommodation with destination autocomplete and calendar dates. Availability label: Planning and recommendation tool — live inventory is not connected."
+    >
       {feedback ? <StatusBanner kind="info" message={feedback} /> : null}
+      <div className="rounded-2xl border border-sky-300/20 bg-sky-500/5 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="font-medium text-white">Hotel search plan</h4>
+          <StatusBadge label="Planning and recommendation tool" tone="info" />
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Field label="Destination" htmlFor="hotel-plan-destination">
+            <LocationAutocomplete
+              id="hotel-plan-destination"
+              mode="place"
+              value={planDestination}
+              placeholder="City, suburb, landmark…"
+              onChange={setPlanDestination}
+            />
+          </Field>
+          <Field label="Guests" htmlFor="hotel-plan-guests">
+            <input
+              id="hotel-plan-guests"
+              type="number"
+              min={1}
+              className={inputClassName}
+              value={planGuests}
+              onChange={(e) => setPlanGuests(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </Field>
+          <Field label="Rooms" htmlFor="hotel-plan-rooms">
+            <input
+              id="hotel-plan-rooms"
+              type="number"
+              min={1}
+              className={inputClassName}
+              value={planRooms}
+              onChange={(e) => setPlanRooms(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </Field>
+          <Field label="Check-in" htmlFor="hotel-plan-checkin">
+            <DatePickerField
+              id="hotel-plan-checkin"
+              value={planCheckIn}
+              min={todayIso()}
+              onChange={(next) => {
+                setPlanCheckIn(next);
+                if (planCheckOut && next && planCheckOut < next) setPlanCheckOut(next);
+              }}
+            />
+          </Field>
+          <Field label="Check-out" htmlFor="hotel-plan-checkout">
+            <DatePickerField
+              id="hotel-plan-checkout"
+              value={planCheckOut}
+              min={planCheckIn || todayIso()}
+              onChange={setPlanCheckOut}
+            />
+          </Field>
+          <Field label="Preferences" htmlFor="hotel-plan-prefs">
+            <input
+              id="hotel-plan-prefs"
+              className={inputClassName}
+              value={planPrefs}
+              placeholder="Near transit, breakfast, family room…"
+              onChange={(e) => setPlanPrefs(e.target.value)}
+            />
+          </Field>
+        </div>
+        <div className="mt-3">
+          <PrimaryButton type="button" disabled={!canEditTrip} onClick={saveHotelPlan}>
+            Save hotel plan to trip
+          </PrimaryButton>
+        </div>
+      </div>
+
+      <h4 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Tracked stays</h4>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Field label="Name" htmlFor="stay-name">
           <input id="stay-name" className={inputClassName} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
@@ -100,20 +208,42 @@ export function StaysPanel() {
           </select>
         </Field>
         <Field label="Check-in date" htmlFor="stay-checkin-date">
-          <input id="stay-checkin-date" type="date" className={inputClassName} value={draft.checkInDate} onChange={(e) => setDraft({ ...draft, checkInDate: e.target.value })} />
+          <DatePickerField
+            id="stay-checkin-date"
+            value={draft.checkInDate}
+            min={todayIso()}
+            onChange={(next) =>
+              setDraft((current) => ({
+                ...current,
+                checkInDate: next,
+                checkOutDate:
+                  current.checkOutDate && next && current.checkOutDate < next ? next : current.checkOutDate,
+              }))
+            }
+          />
         </Field>
         <Field label="Check-in time" htmlFor="stay-checkin-time">
           <input id="stay-checkin-time" type="time" className={inputClassName} value={draft.checkInTime} onChange={(e) => setDraft({ ...draft, checkInTime: e.target.value })} />
         </Field>
         <Field label="Check-out date" htmlFor="stay-checkout-date">
-          <input id="stay-checkout-date" type="date" className={inputClassName} value={draft.checkOutDate} onChange={(e) => setDraft({ ...draft, checkOutDate: e.target.value })} />
+          <DatePickerField
+            id="stay-checkout-date"
+            value={draft.checkOutDate}
+            min={draft.checkInDate || todayIso()}
+            onChange={(next) => setDraft({ ...draft, checkOutDate: next })}
+          />
         </Field>
         <Field label="Check-out time" htmlFor="stay-checkout-time">
           <input id="stay-checkout-time" type="time" className={inputClassName} value={draft.checkOutTime} onChange={(e) => setDraft({ ...draft, checkOutTime: e.target.value })} />
         </Field>
         <div className="md:col-span-2 xl:col-span-3">
-          <Field label="Address" htmlFor="stay-address">
-            <input id="stay-address" className={inputClassName} value={draft.address} onChange={(e) => setDraft({ ...draft, address: e.target.value })} />
+          <Field label="Address / area" htmlFor="stay-address">
+            <LocationAutocomplete
+              id="stay-address"
+              mode="place"
+              value={draft.address}
+              onChange={(value) => setDraft({ ...draft, address: value })}
+            />
           </Field>
         </div>
         <Field label="Contact phone" htmlFor="stay-phone">
