@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { searchFlights, type FlightOffer } from '../../providers';
 import { useSharedTripStore } from '../../store/TripStoreContext';
 import {
   FLIGHT_CHECK_IN_STATUSES,
@@ -57,6 +58,9 @@ export function FlightsPanel() {
   const [planReturn, setPlanReturn] = useState('');
   const [planTravellers, setPlanTravellers] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
   const [planCabin, setPlanCabin] = useState('Economy');
+  const [providerOffers, setProviderOffers] = useState<FlightOffer[]>([]);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
 
   const toggleTraveller = (travellerId: string) => {
     setDraft((current) => ({
@@ -108,6 +112,37 @@ export function FlightsPanel() {
     upsertFlight(planned);
     setDraft(planned);
     setFeedback('Flight plan saved to this trip. Live fares are not connected — organise booking details when ready.');
+  };
+
+  const runProviderSearch = async () => {
+    if (!planOrigin.trim() || !planDestination.trim() || !planDepart) {
+      setFeedback('Origin, destination, and departure date are required for provider search.');
+      return;
+    }
+    setProviderBusy(true);
+    setProviderWarning(null);
+    try {
+      const result = await searchFlights({
+        origin: planOrigin,
+        destination: planDestination,
+        departDate: planDepart,
+        returnDate: planReturn || undefined,
+        travellers: planTravellers,
+        cabin: planCabin.toLowerCase().replace(/\s+/g, '_'),
+        currency: activeVaultTrip.currency,
+      });
+      setProviderOffers(result.offers);
+      setProviderWarning(result.warnings[0] ?? null);
+      setFeedback(
+        result.offers.length
+          ? `Provider gateway returned ${result.offers.length} mock flight offer(s) from enabled suppliers.`
+          : 'No flight offers from enabled providers.',
+      );
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Provider search failed');
+    } finally {
+      setProviderBusy(false);
+    }
   };
 
   return (
@@ -187,11 +222,33 @@ export function FlightsPanel() {
             </select>
           </Field>
         </div>
-        <div className="mt-3">
-          <PrimaryButton type="button" disabled={!canEditTrip} onClick={saveFlightPlan}>
-            Save flight plan to trip
+        <div className="mt-3 flex flex-wrap gap-2">
+          <PrimaryButton type="button" disabled={providerBusy} onClick={() => void runProviderSearch()}>
+            {providerBusy ? 'Searching providers…' : 'Search via provider gateway'}
           </PrimaryButton>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={saveFlightPlan}>
+            Save flight plan to trip
+          </SecondaryButton>
         </div>
+        {providerWarning ? <p className="mt-3 text-xs text-amber-200">{providerWarning}</p> : null}
+        {providerOffers.length > 0 ? (
+          <ul className="mt-3 space-y-2" aria-label="Flight provider offers">
+            {providerOffers.map((offer) => (
+              <li key={offer.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200">
+                <span className="font-medium text-white">
+                  {offer.airline} {offer.flightNumber}
+                </span>
+                {' · '}
+                {offer.departure.airport.code ?? offer.departure.airport.name} →{' '}
+                {offer.arrival.airport.code ?? offer.arrival.airport.name}
+                {' · '}
+                {offer.fare.currency} {offer.fare.amount}
+                {' · '}
+                <StatusBadge label={`${offer.providerId} · mock`} tone="warning" />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       <h4 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Confirmed / tracked segments</h4>

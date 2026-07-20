@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { searchHotels, type HotelOffer } from '../../providers';
 import { useSharedTripStore } from '../../store/TripStoreContext';
 import {
   PAYMENT_STATUSES,
@@ -54,6 +55,9 @@ export function StaysPanel() {
   const [planGuests, setPlanGuests] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
   const [planRooms, setPlanRooms] = useState(1);
   const [planPrefs, setPlanPrefs] = useState('');
+  const [providerOffers, setProviderOffers] = useState<HotelOffer[]>([]);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
 
   const toggleTraveller = (travellerId: string) => {
     setDraft((current) => ({
@@ -100,6 +104,37 @@ export function StaysPanel() {
     upsertStay(planned);
     setDraft(planned);
     setFeedback('Hotel plan saved to this trip. Live availability is not connected.');
+  };
+
+  const runProviderSearch = async () => {
+    if (!planDestination.trim() || !planCheckIn || !planCheckOut) {
+      setFeedback('Destination, check-in, and check-out are required for provider search.');
+      return;
+    }
+    setProviderBusy(true);
+    setProviderWarning(null);
+    try {
+      const result = await searchHotels({
+        destination: planDestination,
+        checkIn: planCheckIn,
+        checkOut: planCheckOut,
+        guests: planGuests,
+        rooms: planRooms,
+        preferences: planPrefs,
+        currency: activeVaultTrip.currency,
+      });
+      setProviderOffers(result.offers);
+      setProviderWarning(result.warnings[0] ?? null);
+      setFeedback(
+        result.offers.length
+          ? `Provider gateway returned ${result.offers.length} mock hotel offer(s) from enabled suppliers.`
+          : 'No hotel offers from enabled providers.',
+      );
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Provider search failed');
+    } finally {
+      setProviderBusy(false);
+    }
   };
 
   return (
@@ -172,11 +207,30 @@ export function StaysPanel() {
             />
           </Field>
         </div>
-        <div className="mt-3">
-          <PrimaryButton type="button" disabled={!canEditTrip} onClick={saveHotelPlan}>
-            Save hotel plan to trip
+        <div className="mt-3 flex flex-wrap gap-2">
+          <PrimaryButton type="button" disabled={providerBusy} onClick={() => void runProviderSearch()}>
+            {providerBusy ? 'Searching providers…' : 'Search via provider gateway'}
           </PrimaryButton>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={saveHotelPlan}>
+            Save hotel plan to trip
+          </SecondaryButton>
         </div>
+        {providerWarning ? <p className="mt-3 text-xs text-amber-200">{providerWarning}</p> : null}
+        {providerOffers.length > 0 ? (
+          <ul className="mt-3 space-y-2" aria-label="Hotel provider offers">
+            {providerOffers.map((offer) => (
+              <li key={offer.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200">
+                <span className="font-medium text-white">{offer.property}</span>
+                {' · '}
+                {offer.room}
+                {' · '}
+                {offer.nightlyRate.currency} {offer.nightlyRate.amount}/night
+                {' · '}
+                <StatusBadge label={`${offer.providerId} · mock`} tone="warning" />
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
       <h4 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Tracked stays</h4>

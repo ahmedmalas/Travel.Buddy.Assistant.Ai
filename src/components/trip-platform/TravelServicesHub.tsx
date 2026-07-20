@@ -5,6 +5,12 @@ import {
   type TravelServiceId,
   type TravelServiceItem,
 } from '../../features/travel-services/catalog';
+import {
+  searchActivities,
+  searchCarHire,
+  searchCruises,
+  searchTransfers,
+} from '../../providers';
 import { useSharedTripStore } from '../../store/TripStoreContext';
 import { DatePickerField, todayIso } from '../ui/DatePickerField';
 import { LocationAutocomplete } from '../ui/LocationAutocomplete';
@@ -17,6 +23,8 @@ import {
   StatusBanner,
   inputClassName,
 } from './shared/ui';
+
+type ProviderPreview = { id: string; title: string; detail: string };
 
 const availabilityTone = (
   availability: ServiceAvailability,
@@ -36,11 +44,106 @@ export function TravelServicesHub({ onNavigate }: { onNavigate?: (tab: string) =
   const [endDate, setEndDate] = useState(activeVaultTrip.returnDate || '');
   const [notes, setNotes] = useState('');
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerPreviews, setProviderPreviews] = useState<ProviderPreview[]>([]);
 
   const group = useMemo(
     () => TRAVEL_SERVICE_GROUPS.find((entry) => entry.id === activeGroup) ?? TRAVEL_SERVICE_GROUPS[0]!,
     [activeGroup],
   );
+
+  const runProviderPreview = async (service: TravelServiceItem) => {
+    if (!location.trim()) {
+      setFeedback('Add a location before searching providers.');
+      return;
+    }
+    setProviderBusy(true);
+    setProviderPreviews([]);
+    try {
+      const currency = activeVaultTrip.currency;
+      if (service.id === 'cruises') {
+        const result = await searchCruises({
+          region: location,
+          departurePort: location,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          currency,
+        });
+        setProviderPreviews(
+          result.offers.map((offer) => ({
+            id: offer.id,
+            title: `${offer.line} · ${offer.ship}`,
+            detail: `${offer.itineraryName} · ${offer.nights} nights · ${offer.fareFrom.currency} ${offer.fareFrom.amount} · ${offer.providerId} mock`,
+          })),
+        );
+        setFeedback(result.warnings[0] ?? `Found ${result.offers.length} cruise offer(s) via provider gateway.`);
+      } else if (service.id === 'car-hire') {
+        const result = await searchCarHire({
+          pickupLocation: location,
+          pickupDate: startDate || todayIso(),
+          dropoffDate: endDate || startDate || todayIso(),
+          currency,
+        });
+        setProviderPreviews(
+          result.offers.map((offer) => ({
+            id: offer.id,
+            title: offer.vehicleClass,
+            detail: `${offer.pickupLocation} · ${offer.total.currency} ${offer.total.amount} · ${offer.providerId} mock`,
+          })),
+        );
+        setFeedback(result.warnings[0] ?? `Found ${result.offers.length} car hire offer(s) via provider gateway.`);
+      } else if (
+        service.id === 'airport-transfers' ||
+        service.id === 'private-hire' ||
+        service.id === 'taxis' ||
+        service.id === 'rideshare'
+      ) {
+        const result = await searchTransfers({
+          pickup: location,
+          dropoff: location,
+          pickupDate: startDate || todayIso(),
+          currency,
+        });
+        setProviderPreviews(
+          result.offers.map((offer) => ({
+            id: offer.id,
+            title: offer.vehicleType,
+            detail: `${offer.pickup} → ${offer.dropoff} · ${offer.total.currency} ${offer.total.amount} · ${offer.providerId} mock`,
+          })),
+        );
+        setFeedback(result.warnings[0] ?? `Found ${result.offers.length} transfer offer(s) via provider gateway.`);
+      } else if (
+        service.id === 'leisure' ||
+        service.id === 'tours' ||
+        service.id === 'adventure' ||
+        service.id === 'off-roading' ||
+        service.id === 'nearby' ||
+        service.id === 'things-nearby'
+      ) {
+        const result = await searchActivities({
+          destination: location,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          category: service.title,
+          currency,
+        });
+        setProviderPreviews(
+          result.offers.map((offer) => ({
+            id: offer.id,
+            title: offer.title,
+            detail: `${offer.category} · ${offer.duration} · ${offer.pricing.currency} ${offer.pricing.amount} · ${offer.providerId} mock`,
+          })),
+        );
+        setFeedback(result.warnings[0] ?? `Found ${result.offers.length} activity offer(s) via provider gateway.`);
+      } else {
+        setFeedback('This category saves planning requests only — no inventory provider is wired yet.');
+      }
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Provider preview failed');
+    } finally {
+      setProviderBusy(false);
+    }
+  };
 
   const savePlan = (service: TravelServiceItem) => {
     if (!canEditTrip) return;
@@ -200,6 +303,9 @@ export function TravelServicesHub({ onNavigate }: { onNavigate?: (tab: string) =
             </Field>
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
+            <PrimaryButton type="button" disabled={providerBusy} onClick={() => void runProviderPreview(selected)}>
+              {providerBusy ? 'Searching…' : 'Preview via provider gateway'}
+            </PrimaryButton>
             <PrimaryButton type="button" disabled={!canEditTrip} onClick={() => savePlan(selected)}>
               Save to trip
             </PrimaryButton>
@@ -207,6 +313,16 @@ export function TravelServicesHub({ onNavigate }: { onNavigate?: (tab: string) =
               Close
             </SecondaryButton>
           </div>
+          {providerPreviews.length > 0 ? (
+            <ul className="mt-3 space-y-2" aria-label="Service provider offers">
+              {providerPreviews.map((offer) => (
+                <li key={offer.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200">
+                  <span className="font-medium text-white">{offer.title}</span>
+                  <p className="text-xs text-slate-400">{offer.detail}</p>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
       ) : null}
     </Panel>

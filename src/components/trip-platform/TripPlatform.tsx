@@ -123,6 +123,9 @@ const TravelServicesHub = lazy(() =>
 const ConciergePlanPanel = lazy(() =>
   import('./ConciergePlanPanel').then((module) => ({ default: module.ConciergePlanPanel })),
 );
+const ProviderIntegrationPanel = lazy(() =>
+  import('./ProviderIntegrationPanel').then((module) => ({ default: module.ProviderIntegrationPanel })),
+);
 
 const NAV_GROUPS = [
   {
@@ -145,6 +148,7 @@ const NAV_GROUPS = [
       { id: 'stays', label: 'Hotels' },
       { id: 'transport', label: 'Transfers & hire' },
       { id: 'services', label: 'Travel services' },
+      { id: 'providers', label: 'Provider layer' },
     ],
   },
   {
@@ -300,6 +304,7 @@ function TripPlatformInner() {
     stays: StaysPanel,
     transport: GroundTransportPanel,
     services: TravelServicesHub,
+    providers: ProviderIntegrationPanel,
     maps: MapsRoutesPanel,
     bookings: BookingsManager,
     budget: BudgetTracker,
