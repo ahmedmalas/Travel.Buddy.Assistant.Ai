@@ -54,13 +54,22 @@ test.describe('Travel Buddy production smoke', () => {
     await expect(platform.getByRole('heading', { name: /^Hotels$/i })).toBeVisible({ timeout: 15_000 });
 
     const destination = page.locator('#hotel-plan-destination');
-    await destination.fill('Melbourne');
+    await destination.click();
+    await destination.fill('');
+    await destination.pressSequentially('Melbourne', { delay: 30 });
+    const melbourneOption = page.getByRole('option', { name: /Melbourne/i }).first();
+    if (await melbourneOption.isVisible({ timeout: 3_000 }).catch(() => false)) {
+      await melbourneOption.click();
+    } else {
+      await destination.press('Tab');
+    }
+    await expect(destination).toHaveValue(/Melbourne/i);
     await page.locator('#hotel-plan-checkin').click();
     await pickEnabledCalendarDay(page);
     await page.locator('#hotel-plan-checkout').click();
     await pickEnabledCalendarDay(page);
     await page.getByRole('button', { name: /Save hotel plan to trip/i }).click();
-    await expect(page.getByText(/Hotel plan saved/i)).toBeVisible();
+    await expect(page.getByText(/Hotel plan saved/i)).toBeVisible({ timeout: 10_000 });
 
     await page.getByRole('tab', { name: /Travel services/i }).click();
     await expect(page.getByRole('heading', { name: /Travel services/i })).toBeVisible();
