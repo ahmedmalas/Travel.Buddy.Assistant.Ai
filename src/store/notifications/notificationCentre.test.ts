@@ -27,6 +27,7 @@ describe('notificationCentre', () => {
           notes: '',
           attachmentName: '',
           attachmentMimeType: '',
+          storagePath: '',
         },
       ],
       expenses: [

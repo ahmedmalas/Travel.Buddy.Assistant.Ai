@@ -113,6 +113,13 @@ import {
 } from './sync/syncEngine';
 import { runCloudSync } from './sync/cloudSync';
 import {
+  hydrateVaultFromRepositories,
+  persistVaultToRepositories,
+  shouldAutoPersistToCloud,
+} from './sync/cloudPersistence';
+import type { DraftPlan, TripBriefInput } from '../features/trip-brief/models';
+import { getTripDurationDays } from '../features/trip-brief/tripBrief.mapper';
+import {
   buildNotificationsFromTrips,
   dismissNotification as applyDismissNotification,
   loadNotificationState,
@@ -152,7 +159,7 @@ import {
   updateAccountSettings,
   type AccountSettings,
 } from './settings/accountSettings';
-import { getCloudRuntimeStatus, isSupabaseConfigured } from '../lib/supabase/client';
+import { getCloudRuntimeStatus, getSupabaseClient, isSupabaseConfigured } from '../lib/supabase/client';
 import { SUPABASE_TARGET_VERIFICATION } from '../lib/supabase/env';
 import {
   DEFAULT_CHECKLIST_TEMPLATES,
@@ -1372,6 +1379,9 @@ export function useTripStore() {
   const accountSettingsRef = useRef(accountSettings);
   accountSettingsRef.current = accountSettings;
   const [cloudMigrationMessage, setCloudMigrationMessage] = useState<string | null>(null);
+  const [cloudPersistMessage, setCloudPersistMessage] = useState<string | null>(null);
+  const vaultRef = useRef(vault);
+  vaultRef.current = vault;
   const [onboardingState, setOnboardingState] = useState<OnboardingState>(() => loadOnboardingState());
   const [dealEngineState, setDealEngineState] = useState<DealEngineState>(() => loadDealEngineState());
   const [finalisationState, setFinalisationState] = useState<FinalisationState>(() => loadFinalisationState());
@@ -1542,10 +1552,119 @@ export function useTripStore() {
       setAuthProvider((current) => (current === 'supabase' ? current : result.provider));
       setEmailVerified((current) => current ?? result.emailVerified);
     });
+
+    const client = getSupabaseClient();
+    const subscription = client?.auth.onAuthStateChange((event, session) => {
+      if (cancelled) return;
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        setAuthState((current) => ({
+          ...current,
+          mode: 'signed-out',
+          user: null,
+          screen: 'sign-in',
+          message: event === 'SIGNED_OUT' ? 'Signed out.' : current.message,
+          updatedAt: new Date().toISOString(),
+        }));
+        setEmailVerified(null);
+        return;
+      }
+      if (
+        event === 'SIGNED_IN' ||
+        event === 'TOKEN_REFRESHED' ||
+        event === 'USER_UPDATED' ||
+        event === 'INITIAL_SESSION'
+      ) {
+        const user = session.user;
+        setAuthProvider('supabase');
+        setEmailVerified(Boolean(user.email_confirmed_at));
+        setAuthState((current) => ({
+          ...current,
+          mode: 'signed-in',
+          user: {
+            id: user.id,
+            email: user.email ?? '',
+            displayName:
+              (user.user_metadata?.display_name as string | undefined)?.trim() ||
+              (user.email ? user.email.split('@')[0] : 'Traveller') ||
+              'Traveller',
+          },
+          screen: 'session',
+          message:
+            event === 'TOKEN_REFRESHED'
+              ? 'Session refreshed.'
+              : current.message || 'Signed in with Supabase Auth.',
+          updatedAt: new Date().toISOString(),
+        }));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription?.data.subscription.unsubscribe();
+    };
+  }, []);
+
+  // When signed in, hydrate vault from cloud once per session transition.
+  useEffect(() => {
+    if (
+      !shouldAutoPersistToCloud({
+        supabaseConfigured: isSupabaseConfigured(),
+        authMode: authState.mode,
+        remoteMigrationsApplied: cloudRuntime.remoteMigrationsApplied,
+      })
+    ) {
+      return;
+    }
+    let cancelled = false;
+    void hydrateVaultFromRepositories(repositories, vaultRef.current).then((next) => {
+      if (cancelled) return;
+      if (next.trips.length === 0) return;
+      setVault(next);
+      const active = getActiveVaultTrip(next);
+      if (active) {
+        setHistory({ past: [], present: active, future: [] });
+      }
+      setCloudPersistMessage(`Hydrated ${next.trips.length} trip(s) from cloud.`);
+    });
     return () => {
       cancelled = true;
     };
-  }, []);
+    // Intentionally only re-run when auth mode flips to signed-in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [authState.mode]);
+
+  // Debounced cloud persist of vault when authenticated.
+  useEffect(() => {
+    if (
+      !shouldAutoPersistToCloud({
+        supabaseConfigured: isSupabaseConfigured(),
+        authMode: authState.mode,
+        remoteMigrationsApplied: cloudRuntime.remoteMigrationsApplied,
+      })
+    ) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void persistVaultToRepositories(repositories, vault).then((result) => {
+        setCloudPersistMessage(result.ok ? result.message : `Cloud persist: ${result.message}`);
+        if (result.ok) {
+          const active = getActiveVaultTrip(vault);
+          if (active) {
+            setSyncState((current) =>
+              enqueueChange(current, {
+                entityType: 'trip',
+                entityId: active.id,
+                tripId: active.id,
+                revision: Date.now(),
+                payload: { tripName: active.tripName },
+              }),
+            );
+          }
+        }
+      });
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [vault, authState.mode, repositories, cloudRuntime.remoteMigrationsApplied]);
   useEffect(() => {
     persistSyncState(syncState);
   }, [syncState]);
@@ -2355,6 +2474,57 @@ export function useTripStore() {
       },
       { createSnapshot: true },
     );
+  };
+
+  const applyDraftPlanToActiveTrip = (
+    plan: DraftPlan,
+    brief: TripBriefInput,
+  ): { ok: true; message: string } => {
+    const durationDays = plan.durationDays || getTripDurationDays(brief.startDate, brief.endDate);
+    updateTrip(
+      (trip) => {
+        const vaultTrip = toVaultTrip(trip);
+        const stops = plan.suggestedDays.map((title, index) => {
+          const day = index + 1;
+          const date = brief.startDate
+            ? new Date(`${brief.startDate}T00:00:00`)
+            : new Date();
+          date.setDate(date.getDate() + index);
+          const iso = date.toISOString().slice(0, 10);
+          return {
+            id: crypto.randomUUID(),
+            title,
+            day,
+            order: index,
+            notes: plan.tripPillars.join(' · '),
+            date: iso,
+            startTime: day === 1 ? '14:00' : '09:00',
+            endTime: day === durationDays ? '12:00' : '17:00',
+            location: plan.destination,
+            category: index === 0 ? ('travel' as const) : ('activity' as const),
+            cost: 0,
+            currency: vaultTrip.currency || 'USD',
+            bookingReference: '',
+          };
+        });
+        const next = {
+          ...vaultTrip,
+          tripName: vaultTrip.tripName?.trim() || plan.title,
+          destination: plan.destination,
+          departureDate: brief.startDate || vaultTrip.departureDate,
+          returnDate: brief.endDate || vaultTrip.returnDate,
+          travellerCount: plan.travelers,
+          notes: [vaultTrip.notes, brief.notes, `Draft pace: ${plan.dailyPace}`, ...plan.assumptions]
+            .filter(Boolean)
+            .join('\n'),
+          status: vaultTrip.status === 'archived' ? vaultTrip.status : ('draft' as const),
+          stops: stops.length > 0 ? stops : vaultTrip.stops,
+        };
+        return appendActivity(next, `Applied draft plan: ${plan.title}.`);
+      },
+      { createSnapshot: true },
+    );
+    return { ok: true, message: `Applied draft plan to active trip (${plan.suggestedDays.length} day(s)).` };
   };
 
   const currentUserRole: CollaborationRole = 'owner';
@@ -5385,6 +5555,8 @@ export function useTripStore() {
       return result;
     },
     cloudMigrationMessage,
+    cloudPersistMessage,
+    applyDraftPlanToActiveTrip,
     uploadDocumentFile: async (input: {
       tripId: string;
       documentId: string;

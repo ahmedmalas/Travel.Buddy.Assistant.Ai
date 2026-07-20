@@ -90,6 +90,9 @@ const JournalPanel = lazy(() =>
 const AssistancePanel = lazy(() =>
   import('./AssistancePanel').then((module) => ({ default: module.AssistancePanel })),
 );
+const TripBriefPanel = lazy(() =>
+  import('./TripBriefPanel').then((module) => ({ default: module.TripBriefPanel })),
+);
 const OnboardingPanel = lazy(() =>
   import('./OnboardingPanel').then((module) => ({ default: module.OnboardingPanel })),
 );
@@ -114,6 +117,15 @@ const OpsDashboardPanel = lazy(() =>
 const ReleaseCentrePanel = lazy(() =>
   import('./ReleaseCentrePanel').then((module) => ({ default: module.ReleaseCentrePanel })),
 );
+const TravelServicesHub = lazy(() =>
+  import('./TravelServicesHub').then((module) => ({ default: module.TravelServicesHub })),
+);
+const ConciergePlanPanel = lazy(() =>
+  import('./ConciergePlanPanel').then((module) => ({ default: module.ConciergePlanPanel })),
+);
+const ProviderIntegrationPanel = lazy(() =>
+  import('./ProviderIntegrationPanel').then((module) => ({ default: module.ProviderIntegrationPanel })),
+);
 
 const NAV_GROUPS = [
   {
@@ -122,21 +134,56 @@ const NAV_GROUPS = [
     tabs: [
       { id: 'command', label: 'Command centre' },
       { id: 'onboarding', label: 'Onboarding' },
-      { id: 'assistance', label: 'Assistance' },
+      { id: 'trip-brief', label: 'Trip brief' },
+      { id: 'assistance', label: 'AI Concierge' },
+      { id: 'concierge-plan', label: 'Concierge Plan' },
       { id: 'notifications', label: 'Notifications' },
     ],
   },
   {
-    id: 'trip',
-    label: 'Trip',
+    id: 'book',
+    label: 'Book',
     tabs: [
-      { id: 'vault', label: 'Vault' },
+      { id: 'flights', label: 'Flights' },
+      { id: 'stays', label: 'Hotels' },
+      { id: 'transport', label: 'Transfers & hire' },
+      { id: 'services', label: 'Travel services' },
+      { id: 'providers', label: 'Provider layer' },
+    ],
+  },
+  {
+    id: 'plan',
+    label: 'Plan',
+    tabs: [
       { id: 'setup', label: 'Trip setup' },
-      { id: 'overview', label: 'Overview' },
       { id: 'itinerary', label: 'Itinerary' },
       { id: 'calendar', label: 'Calendar' },
-      { id: 'destinations', label: 'Destinations' },
+      { id: 'destinations', label: 'Destination Discovery' },
+      { id: 'budget', label: 'Budget Intelligence' },
+      { id: 'overview', label: 'Overview' },
+      { id: 'vault', label: 'Vault' },
       { id: 'trip-health', label: 'Trip health' },
+    ],
+  },
+  {
+    id: 'explore',
+    label: 'Explore',
+    tabs: [
+      { id: 'maps', label: 'Maps & routes' },
+      { id: 'destinations', label: 'Destinations' },
+    ],
+  },
+  {
+    id: 'organise',
+    label: 'Organise',
+    tabs: [
+      { id: 'bookings', label: 'Booking Organiser' },
+      { id: 'documents', label: 'Documents' },
+      { id: 'packing', label: 'Packing' },
+      { id: 'checklist', label: 'Checklist' },
+      { id: 'travellers', label: 'Travellers' },
+      { id: 'journal', label: 'Trip Notes' },
+      { id: 'emergency', label: 'Emergency' },
       { id: 'universal-import', label: 'Universal import' },
     ],
   },
@@ -147,30 +194,6 @@ const NAV_GROUPS = [
       { id: 'deal-engine', label: 'Super deal engine' },
       { id: 'partners', label: 'Partner centre' },
       { id: 'growth', label: 'Growth' },
-    ],
-  },
-  {
-    id: 'logistics',
-    label: 'Logistics',
-    tabs: [
-      { id: 'flights', label: 'Flights' },
-      { id: 'stays', label: 'Stays' },
-      { id: 'transport', label: 'Transport' },
-      { id: 'maps', label: 'Maps & routes' },
-      { id: 'bookings', label: 'Bookings' },
-      { id: 'budget', label: 'Budget' },
-    ],
-  },
-  {
-    id: 'prep',
-    label: 'Prep & safety',
-    tabs: [
-      { id: 'checklist', label: 'Checklist' },
-      { id: 'packing', label: 'Packing' },
-      { id: 'travellers', label: 'Travellers' },
-      { id: 'documents', label: 'Documents' },
-      { id: 'emergency', label: 'Emergency' },
-      { id: 'journal', label: 'Journal' },
     ],
   },
   {
@@ -192,9 +215,14 @@ const NAV_GROUPS = [
 ] as const;
 
 type TabId = (typeof NAV_GROUPS)[number]['tabs'][number]['id'];
+type NavGroupId = (typeof NAV_GROUPS)[number]['id'];
 type NavTab = { id: TabId; label: string };
 
-const ALL_TABS: NavTab[] = NAV_GROUPS.flatMap((group) => [...group.tabs] as NavTab[]);
+const ALL_TABS: NavTab[] = Array.from(
+  new Map(
+    NAV_GROUPS.flatMap((group) => group.tabs.map((tab) => [tab.id, tab] as const)),
+  ).values(),
+) as NavTab[];
 
 function PanelFallback() {
   return (
@@ -214,10 +242,18 @@ function LazyPanel({ children }: { children: React.ReactNode }) {
 
 function TripPlatformInner() {
   const [activeTab, setActiveTab] = useState<TabId>('command');
-  const [activeGroup, setActiveGroup] = useState<(typeof NAV_GROUPS)[number]['id']>('home');
+  const [activeGroup, setActiveGroup] = useState<NavGroupId>('home');
   const [focusTabId, setFocusTabId] = useState<TabId | null>(null);
-  const { onboardingState, smartAssistance, unreadNotifications, finalisationState, trackAnalyticsEvent } =
-    useSharedTripStore();
+  const {
+    onboardingState,
+    smartAssistance,
+    unreadNotifications,
+    finalisationState,
+    trackAnalyticsEvent,
+    cloudRuntime,
+    authState,
+    cloudPersistMessage,
+  } = useSharedTripStore();
 
   useEffect(() => {
     if (!focusTabId) return;
@@ -230,9 +266,18 @@ function TripPlatformInner() {
     [activeGroup],
   );
 
-  const activateTab = (tabId: TabId, moveFocus = false) => {
-    const group = NAV_GROUPS.find((entry) => entry.tabs.some((tab) => tab.id === tabId));
-    if (group) setActiveGroup(group.id);
+  const activateTab = (tabId: TabId, moveFocus = false, groupId?: NavGroupId) => {
+    if (groupId) {
+      setActiveGroup(groupId);
+    } else {
+      const currentHasTab = NAV_GROUPS.some(
+        (entry) => entry.id === activeGroup && entry.tabs.some((tab) => tab.id === tabId),
+      );
+      if (!currentHasTab) {
+        const group = NAV_GROUPS.find((entry) => entry.tabs.some((tab) => tab.id === tabId));
+        if (group) setActiveGroup(group.id);
+      }
+    }
     setActiveTab(tabId);
     trackAnalyticsEvent('feature_opened', { tab: tabId }, tabId);
     if (moveFocus) setFocusTabId(tabId);
@@ -241,7 +286,9 @@ function TripPlatformInner() {
   const panels: Record<TabId, ComponentType<{ onNavigate?: (tab: string) => void }> | ComponentType> = {
     command: CommandCentreDashboard,
     onboarding: OnboardingPanel,
+    'trip-brief': TripBriefPanel,
     assistance: AssistancePanel,
+    'concierge-plan': ConciergePlanPanel,
     vault: TripVaultPanel,
     setup: TripSetupForm,
     overview: TripOverviewDashboard,
@@ -256,6 +303,8 @@ function TripPlatformInner() {
     flights: FlightsPanel,
     stays: StaysPanel,
     transport: GroundTransportPanel,
+    services: TravelServicesHub,
+    providers: ProviderIntegrationPanel,
     maps: MapsRoutesPanel,
     bookings: BookingsManager,
     budget: BudgetTracker,
@@ -286,6 +335,11 @@ function TripPlatformInner() {
   };
 
   const ActivePanel = panels[activeTab];
+  const navigateFromPanel = (tab: string) => {
+    if (ALL_TABS.some((entry) => entry.id === tab)) {
+      activateTab(tab as TabId);
+    }
+  };
 
   return (
     <section className="mx-auto max-w-7xl px-4 pb-16 md:px-6" aria-label="Trip platform">
@@ -295,14 +349,24 @@ function TripPlatformInner() {
             <p className="text-sm font-semibold uppercase tracking-[0.32em] text-sky-300">Travel Buddy</p>
             <h2 className="mt-2 text-3xl font-bold text-white md:text-4xl">Trip platform</h2>
             <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
-              Slices 9–100 launch-ready framework: trip platform, deal engine, import/health/offline tooling — local/demo
-              by default, no live commercial providers or payments.
+              Aleya Travel Assistant — trip brief planning, vault, documents, and sync against live Supabase when
+              configured. Deal inventory remains demo-only until commercial connectors are enabled.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <StatusBadge
               label={finalisationState.offline.network === 'offline' ? 'Offline' : 'Online'}
               tone={finalisationState.offline.network === 'offline' ? 'warning' : 'success'}
+            />
+            <StatusBadge
+              label={
+                cloudRuntime.clientConfigured
+                  ? authState.mode === 'signed-in'
+                    ? 'Cloud signed in'
+                    : 'Cloud ready'
+                  : 'Local cache'
+              }
+              tone={cloudRuntime.clientConfigured ? (authState.mode === 'signed-in' ? 'success' : 'info') : 'warning'}
             />
             {!onboardingState.dismissed ? <StatusBadge label="Onboarding" tone="info" /> : null}
             {smartAssistance.length > 0 ? (
@@ -313,6 +377,11 @@ function TripPlatformInner() {
             ) : null}
           </div>
         </div>
+        {cloudPersistMessage ? (
+          <p className="mt-3 rounded-xl border border-sky-300/30 bg-sky-500/10 px-3 py-2 text-sm text-sky-100" role="status">
+            {cloudPersistMessage}
+          </p>
+        ) : null}
         {finalisationState.offline.network === 'offline' ? (
           <p className="mt-3 rounded-xl border border-amber-300/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-100" role="status">
             {finalisationState.offline.message}
@@ -330,9 +399,9 @@ function TripPlatformInner() {
                   role="tab"
                   aria-selected={selected}
                   onClick={() => {
-                    setActiveGroup(group.id);
                     const first = group.tabs[0];
-                    if (first) activateTab(first.id);
+                    if (first) activateTab(first.id, false, group.id);
+                    else setActiveGroup(group.id);
                   }}
                   className={`whitespace-nowrap rounded-2xl px-4 py-2.5 text-left text-sm transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-300 ${
                     selected
@@ -413,23 +482,13 @@ function TripPlatformInner() {
         aria-labelledby={`trip-platform-tab-${activeTab}`}
       >
         <LazyPanel>
-          {activeTab === 'command' || activeTab === 'onboarding' ? (
+          {activeTab === 'command' || activeTab === 'onboarding' || activeTab === 'services' ? (
             activeTab === 'command' ? (
-              <CommandCentreDashboard
-                onNavigate={(tab) => {
-                  if (ALL_TABS.some((entry) => entry.id === tab)) {
-                    activateTab(tab as TabId);
-                  }
-                }}
-              />
+              <CommandCentreDashboard onNavigate={navigateFromPanel} />
+            ) : activeTab === 'onboarding' ? (
+              <OnboardingPanel onNavigate={navigateFromPanel} />
             ) : (
-              <OnboardingPanel
-                onNavigate={(tab) => {
-                  if (ALL_TABS.some((entry) => entry.id === tab)) {
-                    activateTab(tab as TabId);
-                  }
-                }}
-              />
+              <TravelServicesHub onNavigate={navigateFromPanel} />
             )
           ) : (
             <ActivePanel />

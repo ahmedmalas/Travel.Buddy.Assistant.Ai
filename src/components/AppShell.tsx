@@ -1,3 +1,4 @@
+import { AssistantPreview } from './AssistantPreview';
 import { SectionCard } from './SectionCard';
 import { TripPlatform } from './trip-platform/TripPlatform';
 import { travelSections } from '../data/sections';
@@ -33,13 +34,7 @@ export function AppShell() {
             </div>
           </div>
 
-          <div id="assistant" className="rounded-[2rem] border border-white/10 bg-white/[0.04] p-6 shadow-2xl shadow-sky-950/30">
-            <p className="text-sm uppercase tracking-[0.32em] text-sky-300">Assistant preview</p>
-            <div className="mt-6 space-y-4 text-sm text-slate-200">
-              <p className="rounded-2xl bg-slate-900 p-4">Find me the best 10-day Japan trip for food, culture, shopping, and value.</p>
-              <p className="rounded-2xl bg-sky-400/10 p-4 text-sky-100">I will compare cities, flights, hotels, neighbourhoods, restaurants, activities, transport, and budget options.</p>
-            </div>
-          </div>
+          <AssistantPreview />
         </section>
 
         <section className="mx-auto grid max-w-7xl gap-5 px-6 pb-12 md:grid-cols-2 lg:grid-cols-3">

@@ -1,10 +1,13 @@
 import { useState } from 'react';
+import { searchFlights, type FlightOffer } from '../../providers';
 import { useSharedTripStore } from '../../store/TripStoreContext';
 import {
   FLIGHT_CHECK_IN_STATUSES,
   type FlightCheckInStatus,
   type FlightSegment,
 } from '../../store/travelOpsDomain';
+import { DatePickerField, todayIso } from '../ui/DatePickerField';
+import { LocationAutocomplete } from '../ui/LocationAutocomplete';
 import {
   EmptyState,
   Field,
@@ -49,6 +52,15 @@ export function FlightsPanel() {
   const travellers = activeVaultTrip.travellers ?? [];
   const [draft, setDraft] = useState<FlightSegment>(createFlight(activeVaultTrip.currency));
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [planOrigin, setPlanOrigin] = useState('');
+  const [planDestination, setPlanDestination] = useState('');
+  const [planDepart, setPlanDepart] = useState('');
+  const [planReturn, setPlanReturn] = useState('');
+  const [planTravellers, setPlanTravellers] = useState(Math.max(1, activeVaultTrip.travellerCount || 1));
+  const [planCabin, setPlanCabin] = useState('Economy');
+  const [providerOffers, setProviderOffers] = useState<FlightOffer[]>([]);
+  const [providerBusy, setProviderBusy] = useState(false);
+  const [providerWarning, setProviderWarning] = useState<string | null>(null);
 
   const toggleTraveller = (travellerId: string) => {
     setDraft((current) => ({
@@ -69,9 +81,177 @@ export function FlightsPanel() {
     setFeedback('Flight segment saved.');
   };
 
+  const extractAirportToken = (value: string) => {
+    const match = value.match(/\(([A-Za-z]{3})\)/);
+    if (match?.[1]) return match[1].toUpperCase();
+    const trimmed = value.trim();
+    if (/^[A-Za-z]{3}$/.test(trimmed)) return trimmed.toUpperCase();
+    return trimmed;
+  };
+
+  const saveFlightPlan = () => {
+    if (!planOrigin.trim() || !planDestination.trim()) {
+      setFeedback('Origin and destination are required for a flight plan.');
+      return;
+    }
+    if (planReturn && planDepart && planReturn < planDepart) {
+      setFeedback('Return date cannot be before departure date.');
+      return;
+    }
+    const planned: FlightSegment = {
+      ...createFlight(activeVaultTrip.currency),
+      departureAirport: extractAirportToken(planOrigin),
+      arrivalAirport: extractAirportToken(planDestination),
+      departureDate: planDepart,
+      arrivalDate: planReturn || planDepart,
+      cabin: planCabin,
+      notes: `Flight search plan · ${planOrigin} → ${planDestination} · ${planTravellers} traveller(s) · cabin ${planCabin}. Live inventory not connected — planning request only.`,
+      airline: 'Planned search',
+      flightNumber: 'PLAN',
+    };
+    upsertFlight(planned);
+    setDraft(planned);
+    setFeedback('Flight plan saved to this trip. Live fares are not connected — organise booking details when ready.');
+  };
+
+  const runProviderSearch = async () => {
+    if (!planOrigin.trim() || !planDestination.trim() || !planDepart) {
+      setFeedback('Origin, destination, and departure date are required for provider search.');
+      return;
+    }
+    setProviderBusy(true);
+    setProviderWarning(null);
+    try {
+      const result = await searchFlights({
+        origin: planOrigin,
+        destination: planDestination,
+        departDate: planDepart,
+        returnDate: planReturn || undefined,
+        travellers: planTravellers,
+        cabin: planCabin.toLowerCase().replace(/\s+/g, '_'),
+        currency: activeVaultTrip.currency,
+      });
+      setProviderOffers(result.offers);
+      setProviderWarning(result.warnings[0] ?? null);
+      setFeedback(
+        result.offers.length
+          ? `Provider gateway returned ${result.offers.length} mock flight offer(s) from enabled suppliers.`
+          : 'No flight offers from enabled providers.',
+      );
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : 'Provider search failed');
+    } finally {
+      setProviderBusy(false);
+    }
+  };
+
   return (
-    <Panel title="Flight segments" description="Track airline segments, terminals, gates, check-in status, and baggage locally. No live flight APIs.">
+    <Panel
+      title="Flights"
+      description="Plan and organise flight requirements with live location suggestions and calendar dates. Availability label: Planning and recommendation tool — live inventory is not connected."
+    >
       {feedback ? <StatusBanner kind="info" message={feedback} /> : null}
+      <div className="rounded-2xl border border-sky-300/20 bg-sky-500/5 p-4">
+        <div className="flex flex-wrap items-center gap-2">
+          <h4 className="font-medium text-white">Flight search plan</h4>
+          <StatusBadge label="Planning and recommendation tool" tone="info" />
+        </div>
+        <p className="mt-1 text-sm text-slate-300">
+          Autocomplete airports as you type. Choose dates from the calendar. Save the plan to your trip — this does not book tickets.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          <Field label="Origin" htmlFor="flight-plan-origin">
+            <LocationAutocomplete
+              id="flight-plan-origin"
+              mode="flight"
+              value={planOrigin}
+              placeholder="City or airport (e.g. Sydney, SYD)"
+              onChange={(value) => setPlanOrigin(value)}
+            />
+          </Field>
+          <Field label="Destination" htmlFor="flight-plan-destination">
+            <LocationAutocomplete
+              id="flight-plan-destination"
+              mode="flight"
+              value={planDestination}
+              placeholder="City or airport (e.g. Tokyo, NRT)"
+              onChange={(value) => setPlanDestination(value)}
+            />
+          </Field>
+          <Field label="Travellers" htmlFor="flight-plan-travellers">
+            <input
+              id="flight-plan-travellers"
+              type="number"
+              min={1}
+              className={inputClassName}
+              value={planTravellers}
+              onChange={(e) => setPlanTravellers(Math.max(1, Number(e.target.value) || 1))}
+            />
+          </Field>
+          <Field label="Departure date" htmlFor="flight-plan-depart">
+            <DatePickerField
+              id="flight-plan-depart"
+              value={planDepart}
+              min={todayIso()}
+              onChange={(next) => {
+                setPlanDepart(next);
+                if (planReturn && next && planReturn < next) setPlanReturn(next);
+              }}
+            />
+          </Field>
+          <Field label="Return date" htmlFor="flight-plan-return">
+            <DatePickerField
+              id="flight-plan-return"
+              value={planReturn}
+              min={planDepart || todayIso()}
+              onChange={setPlanReturn}
+            />
+          </Field>
+          <Field label="Cabin class" htmlFor="flight-plan-cabin">
+            <select
+              id="flight-plan-cabin"
+              className={inputClassName}
+              value={planCabin}
+              onChange={(e) => setPlanCabin(e.target.value)}
+            >
+              {['Economy', 'Premium economy', 'Business', 'First'].map((cabin) => (
+                <option key={cabin} value={cabin}>
+                  {cabin}
+                </option>
+              ))}
+            </select>
+          </Field>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <PrimaryButton type="button" disabled={providerBusy} onClick={() => void runProviderSearch()}>
+            {providerBusy ? 'Searching providers…' : 'Search via provider gateway'}
+          </PrimaryButton>
+          <SecondaryButton type="button" disabled={!canEditTrip} onClick={saveFlightPlan}>
+            Save flight plan to trip
+          </SecondaryButton>
+        </div>
+        {providerWarning ? <p className="mt-3 text-xs text-amber-200">{providerWarning}</p> : null}
+        {providerOffers.length > 0 ? (
+          <ul className="mt-3 space-y-2" aria-label="Flight provider offers">
+            {providerOffers.map((offer) => (
+              <li key={offer.id} className="rounded-xl border border-white/10 bg-slate-950/50 px-3 py-2 text-sm text-slate-200">
+                <span className="font-medium text-white">
+                  {offer.airline} {offer.flightNumber}
+                </span>
+                {' · '}
+                {offer.departure.airport.code ?? offer.departure.airport.name} →{' '}
+                {offer.arrival.airport.code ?? offer.arrival.airport.name}
+                {' · '}
+                {offer.fare.currency} {offer.fare.amount}
+                {' · '}
+                <StatusBadge label={`${offer.providerId} · mock`} tone="warning" />
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+
+      <h4 className="mt-6 text-sm font-semibold uppercase tracking-[0.18em] text-slate-400">Confirmed / tracked segments</h4>
       <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
         <Field label="Airline" htmlFor="flight-airline">
           <input id="flight-airline" className={inputClassName} value={draft.airline} onChange={(e) => setDraft({ ...draft, airline: e.target.value })} />
@@ -83,10 +263,20 @@ export function FlightsPanel() {
           <input id="flight-ref" className={inputClassName} value={draft.bookingReference} onChange={(e) => setDraft({ ...draft, bookingReference: e.target.value })} />
         </Field>
         <Field label="Departure airport" htmlFor="flight-dep-airport">
-          <input id="flight-dep-airport" className={inputClassName} value={draft.departureAirport} onChange={(e) => setDraft({ ...draft, departureAirport: e.target.value.toUpperCase() })} />
+          <LocationAutocomplete
+            id="flight-dep-airport"
+            mode="flight"
+            value={draft.departureAirport}
+            onChange={(value) => setDraft({ ...draft, departureAirport: value.toUpperCase() })}
+          />
         </Field>
         <Field label="Arrival airport" htmlFor="flight-arr-airport">
-          <input id="flight-arr-airport" className={inputClassName} value={draft.arrivalAirport} onChange={(e) => setDraft({ ...draft, arrivalAirport: e.target.value.toUpperCase() })} />
+          <LocationAutocomplete
+            id="flight-arr-airport"
+            mode="flight"
+            value={draft.arrivalAirport}
+            onChange={(value) => setDraft({ ...draft, arrivalAirport: value.toUpperCase() })}
+          />
         </Field>
         <Field label="Layover (minutes)" htmlFor="flight-layover">
           <input id="flight-layover" type="number" min={0} className={inputClassName} value={draft.layoverMinutes} onChange={(e) => setDraft({ ...draft, layoverMinutes: Number(e.target.value) })} />
@@ -104,13 +294,29 @@ export function FlightsPanel() {
           <input id="flight-arr-gate" className={inputClassName} value={draft.arrivalGate} onChange={(e) => setDraft({ ...draft, arrivalGate: e.target.value })} />
         </Field>
         <Field label="Departure date" htmlFor="flight-dep-date">
-          <input id="flight-dep-date" type="date" className={inputClassName} value={draft.departureDate} onChange={(e) => setDraft({ ...draft, departureDate: e.target.value })} />
+          <DatePickerField
+            id="flight-dep-date"
+            value={draft.departureDate}
+            min={todayIso()}
+            onChange={(next) => {
+              setDraft((current) => ({
+                ...current,
+                departureDate: next,
+                arrivalDate: current.arrivalDate && next && current.arrivalDate < next ? next : current.arrivalDate,
+              }));
+            }}
+          />
         </Field>
         <Field label="Departure time" htmlFor="flight-dep-time">
           <input id="flight-dep-time" type="time" className={inputClassName} value={draft.departureTime} onChange={(e) => setDraft({ ...draft, departureTime: e.target.value })} />
         </Field>
         <Field label="Arrival date" htmlFor="flight-arr-date">
-          <input id="flight-arr-date" type="date" className={inputClassName} value={draft.arrivalDate} onChange={(e) => setDraft({ ...draft, arrivalDate: e.target.value })} />
+          <DatePickerField
+            id="flight-arr-date"
+            value={draft.arrivalDate}
+            min={draft.departureDate || todayIso()}
+            onChange={(next) => setDraft({ ...draft, arrivalDate: next })}
+          />
         </Field>
         <Field label="Arrival time" htmlFor="flight-arr-time">
           <input id="flight-arr-time" type="time" className={inputClassName} value={draft.arrivalTime} onChange={(e) => setDraft({ ...draft, arrivalTime: e.target.value })} />

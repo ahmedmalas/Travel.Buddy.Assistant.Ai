@@ -138,6 +138,7 @@ export const sanitizeDocument = (doc: Partial<TripDocument>): TripDocument => ({
   notes: asString(doc.notes).trim(),
   attachmentName: asString(doc.attachmentName).trim(),
   attachmentMimeType: asString(doc.attachmentMimeType).trim(),
+  storagePath: asString((doc as Partial<TripDocument>).storagePath).trim(),
 });
 
 export const sanitizeCollaboration = (value: unknown): CollaborationState => {

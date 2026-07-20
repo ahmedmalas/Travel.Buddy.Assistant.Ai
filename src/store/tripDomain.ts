@@ -144,6 +144,8 @@ export type TripDocument = {
   notes: string;
   attachmentName: string;
   attachmentMimeType: string;
+  /** Private Storage object path (`userId/tripId/docId/file`) or `local://…` placeholder. */
+  storagePath: string;
 };
 
 export type CollaborationRole = 'owner' | 'editor' | 'viewer';
@@ -567,6 +569,7 @@ const sanitizeDocument = (doc: Partial<TripDocument>): TripDocument => ({
   notes: asString(doc.notes).trim(),
   attachmentName: asString(doc.attachmentName).trim(),
   attachmentMimeType: asString(doc.attachmentMimeType).trim(),
+  storagePath: asString(doc.storagePath).trim(),
 });
 
 const sanitizeCollaborationState = (value: unknown): CollaborationState => {

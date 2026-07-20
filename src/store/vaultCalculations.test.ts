@@ -120,6 +120,7 @@ describe('vaultCalculations', () => {
           notes: '',
           attachmentName: 'visa.pdf',
           attachmentMimeType: 'application/pdf',
+          storagePath: '',
         },
       ],
     });
@@ -148,6 +149,7 @@ describe('vaultCalculations', () => {
             notes: '',
             attachmentName: '',
             attachmentMimeType: '',
+            storagePath: '',
           },
         ],
       }),
